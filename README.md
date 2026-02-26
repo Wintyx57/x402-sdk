@@ -1,3 +1,8 @@
+[![npm](https://img.shields.io/badge/npm-%40x402%2Fsdk-red)](https://www.npmjs.com/package/@x402/sdk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue)](https://www.typescriptlang.org/)
+[![x402 Protocol](https://img.shields.io/badge/Protocol-x402-orange)](https://x402bazaar.org)
+
 # @x402/sdk
 
 TypeScript SDK for integrating [x402 Bazaar](https://x402bazaar.org) APIs into AI agents — automatic USDC payment on Base.
@@ -155,7 +160,7 @@ x402 Bazaar uses the HTTP 402 Payment Required protocol:
 
 - Website: https://x402bazaar.org
 - Backend: https://x402-api.onrender.com
-- CLI: `npm install -g x402-bazaar`
+- CLI: `npx x402-bazaar` — [x402-bazaar-cli](https://github.com/Wintyx57/x402-bazaar-cli)
 - MCP Server: for Claude/Cursor integration
 
 ## License
