@@ -1,0 +1,55 @@
+{
+  "name": "@x402/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for integrating x402 Bazaar APIs into AI agents — auto-payment via USDC on Base",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "test": "node --test tests/client.test.js",
+    "test:ts": "tsx --test tests/client.test.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run typecheck"
+  },
+  "keywords": [
+    "x402",
+    "bazaar",
+    "usdc",
+    "payment",
+    "ai-agent",
+    "base",
+    "blockchain",
+    "http402",
+    "sdk"
+  ],
+  "author": "x402 Bazaar <contact.x402bazaar@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Wintyx57/x402-sdk"
+  },
+  "homepage": "https://x402bazaar.org",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

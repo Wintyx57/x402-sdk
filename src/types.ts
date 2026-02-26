@@ -1,0 +1,93 @@
+// Types TypeScript pour @x402/sdk
+
+export type Network = 'base' | 'base-sepolia' | 'skale';
+export type BudgetPeriod = 'daily' | 'weekly' | 'monthly';
+
+export interface BudgetConfig {
+  max: number;       // Montant max en USDC
+  period: BudgetPeriod;
+}
+
+export interface BazaarClientConfig {
+  /** Clé privée hex (0x...) pour les paiements automatiques */
+  privateKey: `0x${string}`;
+  /** URL de base du Bazaar (default: https://x402-api.onrender.com) */
+  baseUrl?: string;
+  /** Réseau blockchain (default: 'base') */
+  network?: Network;
+  /** Limite de budget optionnelle */
+  budget?: BudgetConfig;
+  /** Timeout en ms pour les requêtes HTTP (default: 30000) */
+  timeout?: number;
+}
+
+export interface CallOptions {
+  /** Timeout en ms pour cette requête (override config) */
+  timeout?: number;
+  /** Nombre de tentatives en cas d'échec réseau (default: 1) */
+  maxRetries?: number;
+}
+
+export interface PaymentDetails {
+  amount: number;
+  currency: string;
+  network: string;
+  chainId: number;
+  networks: NetworkInfo[];
+  recipient: string;
+  accepted: string[];
+  action: string;
+}
+
+export interface NetworkInfo {
+  network: string;
+  chainId: number;
+  label: string;
+  usdc_contract: string;
+  explorer: string;
+  gas: string;
+}
+
+export interface PaymentRequiredResponse {
+  error: string;
+  message: string;
+  payment_details: PaymentDetails;
+  extensions?: unknown;
+}
+
+export interface ServiceInfo {
+  id: string;
+  name: string;
+  description: string;
+  endpoint: string;
+  price_usdc: number;
+  category: string;
+  network: string;
+  owner_wallet?: string;
+  is_native?: boolean;
+  status?: string;
+}
+
+export interface BudgetStatus {
+  spent: number;
+  limit: number;
+  remaining: number;
+  period: BudgetPeriod;
+  callCount: number;
+  resetAt: Date | null;
+}
+
+export interface HealthResponse {
+  status: string;
+  version: string;
+  network: string;
+  uptime_seconds?: number;
+  node_version?: string;
+}
+
+export interface PaymentResult {
+  txHash: `0x${string}`;
+  explorer: string;
+  from: string;
+  amount: number;
+}
