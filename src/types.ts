@@ -4,7 +4,8 @@ export type Network = 'base' | 'base-sepolia' | 'skale';
 export type BudgetPeriod = 'daily' | 'weekly' | 'monthly';
 
 export interface BudgetConfig {
-  max: number;       // Montant max en USDC
+  /** Montant maximum en USDC par période */
+  max: number;
   period: BudgetPeriod;
 }
 
@@ -14,6 +15,8 @@ export interface BazaarClientConfig {
   /** URL de base du Bazaar (default: https://x402-api.onrender.com) */
   baseUrl?: string;
   /** Réseau blockchain (default: 'base') */
+  chain?: Network;
+  /** Alias de `chain` pour compatibilité */
   network?: Network;
   /** Limite de budget optionnelle */
   budget?: BudgetConfig;
@@ -24,7 +27,7 @@ export interface BazaarClientConfig {
 export interface CallOptions {
   /** Timeout en ms pour cette requête (override config) */
   timeout?: number;
-  /** Nombre de tentatives en cas d'échec réseau (default: 1) */
+  /** Nombre de tentatives de retry réseau après paiement (default: 1) */
   maxRetries?: number;
 }
 
@@ -66,6 +69,8 @@ export interface ServiceInfo {
   owner_wallet?: string;
   is_native?: boolean;
   status?: string;
+  tags?: string[];
+  method?: string;
 }
 
 export interface BudgetStatus {

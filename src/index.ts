@@ -1,6 +1,6 @@
 // @x402/sdk — Point d'entrée principal
 
-export { BazaarClient } from './client.js';
+export { BazaarClient, createClient } from './client.js';
 export { PaymentHandler } from './payment.js';
 
 export {

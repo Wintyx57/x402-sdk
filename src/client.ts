@@ -18,15 +18,29 @@ import {
   InvalidConfigError,
 } from './errors.js';
 
+// ─── Constantes ───────────────────────────────────────────────────────────────
+
 const DEFAULT_BASE_URL = 'https://x402-api.onrender.com';
 const DEFAULT_TIMEOUT  = 30_000;
 const DEFAULT_NETWORK: Network = 'base';
+
+// ─── Types internes ───────────────────────────────────────────────────────────
 
 interface BudgetTracker {
   spent: number;
   callCount: number;
   periodStart: Date;
 }
+
+interface ResolvedConfig {
+  privateKey: `0x${string}`;
+  baseUrl: string;
+  network: Network;
+  timeout: number;
+  budget: { max: number; period: 'daily' | 'weekly' | 'monthly' };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fetchWithTimeout(
   url: string,
@@ -48,28 +62,34 @@ function getPeriodMs(period: 'daily' | 'weekly' | 'monthly'): number {
   }
 }
 
+// ─── BazaarClient ─────────────────────────────────────────────────────────────
+
 export class BazaarClient {
   private readonly paymentHandler: PaymentHandler;
   private readonly baseUrl: string;
   private readonly timeout: number;
-  private readonly config: Required<BazaarClientConfig>;
+  private readonly config: ResolvedConfig;
   private readonly budgetTracker: BudgetTracker;
 
   constructor(config: BazaarClientConfig) {
     if (!config.privateKey || !config.privateKey.startsWith('0x')) {
-      throw new InvalidConfigError('privateKey doit être une clé hex commençant par 0x');
+      throw new InvalidConfigError(
+        'privateKey doit être une clé hex commençant par 0x'
+      );
     }
+
+    const network = config.chain ?? config.network ?? DEFAULT_NETWORK;
 
     this.config = {
       privateKey: config.privateKey,
-      baseUrl:  config.baseUrl  ?? DEFAULT_BASE_URL,
-      network:  config.network  ?? DEFAULT_NETWORK,
-      timeout:  config.timeout  ?? DEFAULT_TIMEOUT,
-      budget:   config.budget   ?? { max: Infinity, period: 'daily' },
+      baseUrl:    (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, ''),
+      network,
+      timeout:    config.timeout ?? DEFAULT_TIMEOUT,
+      budget:     config.budget ?? { max: Infinity, period: 'daily' },
     };
 
-    this.baseUrl  = this.config.baseUrl.replace(/\/$/, '');
-    this.timeout  = this.config.timeout;
+    this.baseUrl = this.config.baseUrl;
+    this.timeout = this.config.timeout;
 
     this.paymentHandler = new PaymentHandler(
       this.config.privateKey,
@@ -83,211 +103,197 @@ export class BazaarClient {
     };
   }
 
-  /** Adresse du wallet agent */
+  // ─── Accesseurs ──────────────────────────────────────────────────────────
+
+  /** Adresse Ethereum du wallet agent */
   get walletAddress(): string {
     return this.paymentHandler.walletAddress;
   }
 
-  /** Solde USDC du wallet agent */
+  /** Réseau blockchain configuré */
+  get network(): Network {
+    return this.config.network;
+  }
+
+  // ─── API publiques ────────────────────────────────────────────────────────
+
+  /**
+   * Solde USDC du wallet agent sur le réseau configuré.
+   */
   async getBalance(): Promise<number> {
     return this.paymentHandler.getBalance();
   }
 
   /**
-   * Appelle un endpoint du Bazaar.
-   * Si l'API retourne 402, le SDK paie automatiquement et retry.
+   * Liste tous les services disponibles sur le Bazaar.
+   * Équivalent de GET /api/services.
+   */
+  async listServices(): Promise<ServiceInfo[]> {
+    const url = `${this.baseUrl}/api/services`;
+    const response = await this._fetchSafe(url, {}, '/api/services');
+
+    const data = (await response.json()) as
+      | { services?: ServiceInfo[] }
+      | ServiceInfo[];
+
+    return Array.isArray(data)
+      ? data
+      : (data.services ?? []);
+  }
+
+  /**
+   * Recherche des services par mot-clé (filtre côté client sur name + description).
+   * Pour une recherche serveur, utiliser listServices() puis filtrer.
+   */
+  async searchServices(query: string): Promise<ServiceInfo[]> {
+    const all = await this.listServices();
+    const q = query.toLowerCase().trim();
+    if (!q) return all;
+
+    return all.filter(
+      s =>
+        s.name.toLowerCase().includes(q) ||
+        s.description.toLowerCase().includes(q) ||
+        (s.category ?? '').toLowerCase().includes(q) ||
+        (s.tags ?? []).some((t: string) => t.toLowerCase().includes(q))
+    );
+  }
+
+  /**
+   * Détail d'un service par son ID.
+   * Équivalent de GET /api/services/:id.
+   */
+  async getService(serviceId: string): Promise<ServiceInfo> {
+    const url = `${this.baseUrl}/api/services/${encodeURIComponent(serviceId)}`;
+    const response = await this._fetchSafe(url, {}, `/api/services/${serviceId}`);
+    return response.json() as Promise<ServiceInfo>;
+  }
+
+  /**
+   * Appelle un service par son ID via le proxy Bazaar (POST /api/call/:serviceId).
+   * Le serveur gère le split 95/5 et la vérification du paiement.
+   * Si le service retourne 402, le SDK paie automatiquement et retente.
+   *
+   * @param serviceId - L'ID UUID du service dans le Bazaar
+   * @param params - Les paramètres à passer au service
+   * @param options - Options de timeout/retry
    */
   async call<T = unknown>(
-    endpoint: string,
+    serviceId: string,
     params: Record<string, string | number | boolean> = {},
     options: CallOptions = {}
   ): Promise<T> {
-    const timeout  = options.timeout    ?? this.timeout;
+    const timeout    = options.timeout    ?? this.timeout;
     const maxRetries = options.maxRetries ?? 1;
+    const endpoint   = `/api/call/${encodeURIComponent(serviceId)}`;
 
-    // Construire l'URL avec les query params
+    // Construire l'URL avec query params
     const url = new URL(`${this.baseUrl}${endpoint}`);
     for (const [k, v] of Object.entries(params)) {
       url.searchParams.set(k, String(v));
     }
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Agent-Wallet': this.paymentHandler.walletAddress,
+    const baseHeaders: Record<string, string> = {
+      'Content-Type':    'application/json',
+      'X-Agent-Wallet':  this.paymentHandler.walletAddress,
     };
 
-    // Première tentative sans paiement
+    // Première tentative — sans paiement
     let response: Response;
     try {
-      response = await fetchWithTimeout(url.toString(), { headers }, timeout);
+      response = await fetchWithTimeout(url.toString(), { headers: baseHeaders }, timeout);
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new TimeoutError(endpoint, timeout);
-      }
-      throw new NetworkError(
-        `Erreur réseau sur ${endpoint}: ${err instanceof Error ? err.message : String(err)}`
-      );
+      throw this._wrapFetchError(err, endpoint, timeout);
     }
 
-    // Succès direct (pas de paiement requis)
     if (response.ok) {
       return response.json() as Promise<T>;
     }
 
-    // 402 Payment Required — on paie et on retry
+    // 402 Payment Required — payer et retenter
     if (response.status === 402) {
-      const body = (await response.json()) as PaymentRequiredResponse;
-      const details = body.payment_details;
-
-      if (!details) {
-        throw new ApiError('Réponse 402 sans payment_details', 402, endpoint);
-      }
-
-      const amountUsdc = details.amount;
-
-      // Vérification budget AVANT de payer
-      this._checkBudget(amountUsdc);
-
-      // Trouver le bon réseau dans la liste des réseaux acceptés
-      const targetNetwork = details.networks?.find(
-        n => n.network === this.config.network
-      ) ?? details.networks?.[0];
-
-      const recipient = (details.recipient ?? targetNetwork?.usdc_contract) as `0x${string}`;
-
-      if (!recipient) {
-        throw new ApiError('Aucun destinataire dans payment_details', 402, endpoint);
-      }
-
-      // Envoyer le paiement USDC
-      const payment = await this.paymentHandler.sendUsdc(recipient, amountUsdc);
-
-      // Enregistrer la dépense dans le tracker
-      this._recordSpending(amountUsdc);
-
-      // Retry avec le tx hash
-      const paidHeaders: Record<string, string> = {
-        ...headers,
-        'X-Payment-TxHash': payment.txHash,
-        'X-Payment-Chain':  this.config.network,
-      };
-
-      let retries = 0;
-      while (retries <= maxRetries) {
-        try {
-          response = await fetchWithTimeout(url.toString(), { headers: paidHeaders }, timeout);
-        } catch (err) {
-          if (err instanceof Error && err.name === 'AbortError') {
-            throw new TimeoutError(endpoint, timeout);
-          }
-          if (retries >= maxRetries) {
-            throw new NetworkError(
-              `Erreur réseau après paiement sur ${endpoint}`
-            );
-          }
-          retries++;
-          continue;
-        }
-
-        if (response.ok) {
-          return response.json() as Promise<T>;
-        }
-
-        if (retries >= maxRetries) break;
-        retries++;
-      }
-
-      const errorBody = await response.json().catch(() => ({}));
-      throw new ApiError(
-        `API error ${response.status} sur ${endpoint}: ${JSON.stringify(errorBody)}`,
-        response.status,
-        endpoint
+      return this._handlePayment<T>(
+        response, url.toString(), baseHeaders, endpoint, timeout, maxRetries
       );
     }
 
-    // Autre erreur HTTP
-    const errorBody = await response.json().catch(() => ({}));
-    throw new ApiError(
-      `API error ${response.status} sur ${endpoint}: ${JSON.stringify(errorBody)}`,
-      response.status,
-      endpoint
-    );
+    throw await this._buildApiError(response, endpoint);
   }
 
   /**
-   * Découvrir les services disponibles sur le Bazaar.
-   * Sans argument : retourne la liste complète.
-   * Avec un endpoint : retourne les détails de ce service.
+   * Appelle directement un endpoint (ancienne API — compatibilité).
+   * Préférer `call(serviceId)` via le proxy pour bénéficier du split 95/5.
+   *
+   * @param endpoint - Chemin de l'API (ex: '/api/search')
+   * @param params - Query parameters
+   * @param options - Options de timeout/retry
    */
-  async discover(endpoint?: string): Promise<ServiceInfo | ServiceInfo[]> {
-    const timeout = this.timeout;
+  async callDirect<T = unknown>(
+    endpoint: string,
+    params: Record<string, string | number | boolean> = {},
+    options: CallOptions = {}
+  ): Promise<T> {
+    const timeout    = options.timeout    ?? this.timeout;
+    const maxRetries = options.maxRetries ?? 1;
 
-    if (endpoint) {
-      // Chercher un service spécifique par endpoint
-      const url = `${this.baseUrl}/api/services`;
-      let response: Response;
-      try {
-        response = await fetchWithTimeout(url, {}, timeout);
-      } catch (err) {
-        if (err instanceof Error && err.name === 'AbortError') {
-          throw new TimeoutError('/api/services', timeout);
-        }
-        throw new NetworkError(`Erreur réseau sur /api/services`);
-      }
-
-      if (!response.ok) {
-        throw new ApiError(`Erreur ${response.status} sur /api/services`, response.status, '/api/services');
-      }
-
-      const data = await response.json() as { services?: ServiceInfo[] };
-      const services = data.services ?? (data as unknown as ServiceInfo[]);
-      const found = (Array.isArray(services) ? services : []).find(
-        s => s.endpoint === endpoint
-      );
-
-      if (!found) {
-        throw new ApiError(`Service non trouvé: ${endpoint}`, 404, endpoint);
-      }
-
-      return found;
+    const url = new URL(`${this.baseUrl}${endpoint}`);
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, String(v));
     }
 
-    // Liste complète
-    const url = `${this.baseUrl}/api/services`;
+    const baseHeaders: Record<string, string> = {
+      'Content-Type':   'application/json',
+      'X-Agent-Wallet': this.paymentHandler.walletAddress,
+    };
+
     let response: Response;
     try {
-      response = await fetchWithTimeout(url, {}, timeout);
+      response = await fetchWithTimeout(url.toString(), { headers: baseHeaders }, timeout);
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new TimeoutError('/api/services', timeout);
-      }
-      throw new NetworkError(`Erreur réseau sur /api/services`);
+      throw this._wrapFetchError(err, endpoint, timeout);
     }
 
-    if (!response.ok) {
-      throw new ApiError(`Erreur ${response.status} sur /api/services`, response.status, '/api/services');
+    if (response.ok) return response.json() as Promise<T>;
+
+    if (response.status === 402) {
+      return this._handlePayment<T>(
+        response, url.toString(), baseHeaders, endpoint, timeout, maxRetries
+      );
     }
 
-    const data = await response.json() as { services?: ServiceInfo[] };
-    return data.services ?? (data as unknown as ServiceInfo[]);
+    throw await this._buildApiError(response, endpoint);
   }
 
-  /** Statut du budget courant */
+  /**
+   * Découvrir les services — alias rétrocompatible.
+   * Sans argument : liste complète.
+   * Avec endpoint : service correspondant (recherche par endpoint field).
+   */
+  async discover(endpoint?: string): Promise<ServiceInfo | ServiceInfo[]> {
+    const services = await this.listServices();
+    if (!endpoint) return services;
+
+    const found = services.find(s => s.endpoint === endpoint);
+    if (!found) {
+      throw new ApiError(`Service non trouvé: ${endpoint}`, 404, endpoint);
+    }
+    return found;
+  }
+
+  /** Statut du budget courant (tracking local, reset automatique par période) */
   getBudgetStatus(): BudgetStatus {
     const { budget } = this.config;
     const periodMs   = getPeriodMs(budget.period);
-    const now        = Date.now();
-    const elapsed    = now - this.budgetTracker.periodStart.getTime();
+    const elapsed    = Date.now() - this.budgetTracker.periodStart.getTime();
 
-    // Reset automatique si la période est écoulée
     if (elapsed >= periodMs) {
       this.budgetTracker.spent       = 0;
       this.budgetTracker.callCount   = 0;
       this.budgetTracker.periodStart = new Date();
     }
 
-    const remaining  = Math.max(0, budget.max - this.budgetTracker.spent);
-    const resetAt    = budget.max === Infinity
+    const remaining = Math.max(0, budget.max - this.budgetTracker.spent);
+    const resetAt   = budget.max === Infinity
       ? null
       : new Date(this.budgetTracker.periodStart.getTime() + periodMs);
 
@@ -301,28 +307,51 @@ export class BazaarClient {
     };
   }
 
-  /** Health check du backend */
+  /** Health check du backend Bazaar */
   async health(): Promise<HealthResponse> {
     const url = `${this.baseUrl}/health`;
-    let response: Response;
-
-    try {
-      response = await fetchWithTimeout(url, {}, this.timeout);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new TimeoutError('/health', this.timeout);
-      }
-      throw new NetworkError(`Impossible de joindre le Bazaar: ${this.baseUrl}`);
-    }
-
-    if (!response.ok) {
-      throw new ApiError(`Health check échoué: ${response.status}`, response.status, '/health');
-    }
-
+    const response = await this._fetchSafe(url, {}, '/health');
     return response.json() as Promise<HealthResponse>;
   }
 
-  // ─── Méthodes privées ───
+  // ─── Méthodes privées ─────────────────────────────────────────────────────
+
+  private async _fetchSafe(
+    url: string,
+    init: RequestInit,
+    label: string
+  ): Promise<Response> {
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(url, init, this.timeout);
+    } catch (err) {
+      throw this._wrapFetchError(err, label, this.timeout);
+    }
+
+    if (!response.ok) {
+      throw await this._buildApiError(response, label);
+    }
+
+    return response;
+  }
+
+  private _wrapFetchError(err: unknown, endpoint: string, timeout: number): Error {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return new TimeoutError(endpoint, timeout);
+    }
+    return new NetworkError(
+      `Erreur réseau sur ${endpoint}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  private async _buildApiError(response: Response, endpoint: string): Promise<ApiError> {
+    const body = await response.json().catch(() => ({}));
+    return new ApiError(
+      `API error ${response.status} sur ${endpoint}: ${JSON.stringify(body)}`,
+      response.status,
+      endpoint
+    );
+  }
 
   private _checkBudget(amountUsdc: number): void {
     const { budget } = this.config;
@@ -331,15 +360,13 @@ export class BazaarClient {
     const periodMs = getPeriodMs(budget.period);
     const elapsed  = Date.now() - this.budgetTracker.periodStart.getTime();
 
-    // Reset si période écoulée
     if (elapsed >= periodMs) {
       this.budgetTracker.spent       = 0;
       this.budgetTracker.callCount   = 0;
       this.budgetTracker.periodStart = new Date();
     }
 
-    const projected = this.budgetTracker.spent + amountUsdc;
-    if (projected > budget.max) {
+    if (this.budgetTracker.spent + amountUsdc > budget.max) {
       throw new BudgetExceededError(
         this.budgetTracker.spent,
         budget.max,
@@ -349,7 +376,101 @@ export class BazaarClient {
   }
 
   private _recordSpending(amountUsdc: number): void {
-    this.budgetTracker.spent    += amountUsdc;
+    this.budgetTracker.spent     += amountUsdc;
     this.budgetTracker.callCount += 1;
   }
+
+  private async _handlePayment<T>(
+    initial402Response: Response,
+    urlStr: string,
+    baseHeaders: Record<string, string>,
+    endpoint: string,
+    timeout: number,
+    maxRetries: number
+  ): Promise<T> {
+    const body = (await initial402Response.json()) as PaymentRequiredResponse;
+    const details = body.payment_details;
+
+    if (!details) {
+      throw new ApiError('Réponse 402 sans payment_details', 402, endpoint);
+    }
+
+    const amountUsdc = details.amount;
+
+    // Vérification budget AVANT de payer
+    this._checkBudget(amountUsdc);
+
+    // Trouver le bon réseau parmi ceux acceptés par le serveur
+    const targetNetwork =
+      details.networks?.find(n => n.network === this.config.network) ??
+      details.networks?.[0];
+
+    const recipient = (details.recipient ?? targetNetwork?.usdc_contract) as
+      | `0x${string}`
+      | undefined;
+
+    if (!recipient) {
+      throw new ApiError('Aucun destinataire dans payment_details', 402, endpoint);
+    }
+
+    // Envoyer le paiement USDC on-chain
+    const payment = await this.paymentHandler.sendUsdc(recipient, amountUsdc);
+
+    // Enregistrer la dépense localement
+    this._recordSpending(amountUsdc);
+
+    // Retenter avec le tx hash
+    const paidHeaders: Record<string, string> = {
+      ...baseHeaders,
+      'X-Payment-TxHash': payment.txHash,
+      'X-Payment-Chain':  this.config.network,
+    };
+
+    let retries = 0;
+    let response: Response;
+
+    while (true) {
+      try {
+        response = await fetchWithTimeout(urlStr, { headers: paidHeaders }, timeout);
+      } catch (err) {
+        if (retries >= maxRetries) {
+          throw this._wrapFetchError(err, endpoint, timeout);
+        }
+        retries++;
+        continue;
+      }
+
+      if (response.ok) {
+        return response.json() as Promise<T>;
+      }
+
+      if (retries >= maxRetries) break;
+      retries++;
+    }
+
+    throw await this._buildApiError(response!, endpoint);
+  }
+}
+
+// ─── Factory ──────────────────────────────────────────────────────────────────
+
+/**
+ * Crée un client x402 Bazaar prêt à l'emploi.
+ *
+ * @example
+ * ```ts
+ * import { createClient } from '@x402/sdk';
+ *
+ * const client = createClient({
+ *   privateKey: process.env.AGENT_PRIVATE_KEY as `0x${string}`,
+ *   chain: 'base',
+ * });
+ *
+ * const services = await client.listServices();
+ * const result   = await client.call('service-uuid', { q: 'hello' });
+ * const balance  = await client.getBalance();
+ * ```
+ */
+export function createClient(config: BazaarClientConfig): BazaarClient {
+  return new BazaarClient(config);
 }

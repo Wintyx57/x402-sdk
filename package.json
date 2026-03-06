@@ -1,14 +1,21 @@
 {
   "name": "@x402/sdk",
   "version": "1.0.0",
-  "description": "TypeScript SDK for integrating x402 Bazaar APIs into AI agents — auto-payment via USDC on Base",
+  "description": "TypeScript SDK for integrating x402 Bazaar APIs into AI agents — automatic USDC payment on Base and SKALE",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
     }
   },
   "files": [
@@ -17,11 +24,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
-    "build:watch": "tsc --watch",
-    "test": "node --test tests/client.test.js",
-    "test:ts": "tsx --test tests/client.test.ts",
-    "typecheck": "tsc --noEmit",
+    "build": "npm run build:esm && npm run build:cjs",
+    "build:esm": "tsc -p tsconfig.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
+    "build:watch": "tsc -p tsconfig.json --watch",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/tests/client.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build && npm run typecheck"
   },
   "keywords": [
@@ -31,9 +39,11 @@
     "payment",
     "ai-agent",
     "base",
+    "skale",
     "blockchain",
     "http402",
-    "sdk"
+    "sdk",
+    "typescript"
   ],
   "author": "x402 Bazaar <contact.x402bazaar@gmail.com>",
   "license": "MIT",
