@@ -62,15 +62,18 @@ export interface ServiceInfo {
   id: string;
   name: string;
   description: string;
-  endpoint: string;
+  url: string;
+  endpoint?: string;
   price_usdc: number;
-  category: string;
-  network: string;
+  category?: string;
+  network?: string;
+  owner_address?: string;
   owner_wallet?: string;
   is_native?: boolean;
-  status?: string;
+  verified_status?: string;
   tags?: string[];
   method?: string;
+  created_at?: string;
 }
 
 export interface BudgetStatus {

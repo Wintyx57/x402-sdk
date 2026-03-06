@@ -1,6 +1,6 @@
 {
   "name": "@wintyx/x402-sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TypeScript SDK for integrating x402 Bazaar APIs into AI agents — automatic USDC payment on Base and SKALE",
   "type": "module",
   "main": "./dist/cjs/index.js",

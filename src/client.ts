@@ -129,16 +129,17 @@ export class BazaarClient {
    * Équivalent de GET /api/services.
    */
   async listServices(): Promise<ServiceInfo[]> {
-    const url = `${this.baseUrl}/api/services`;
+    const url = `${this.baseUrl}/api/services?limit=200`;
     const response = await this._fetchSafe(url, {}, '/api/services');
 
-    const data = (await response.json()) as
-      | { services?: ServiceInfo[] }
-      | ServiceInfo[];
+    const json = await response.json() as unknown;
 
-    return Array.isArray(data)
-      ? data
-      : (data.services ?? []);
+    // Backend returns { data: [...], pagination } or a raw array
+    if (Array.isArray(json)) return json;
+    if (json && typeof json === 'object' && 'data' in json && Array.isArray((json as any).data)) {
+      return (json as any).data;
+    }
+    return [];
   }
 
   /**
