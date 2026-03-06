@@ -10,6 +10,7 @@ import type {
   Network,
 } from './types.js';
 import { PaymentHandler } from './payment.js';
+import { loadOrCreateWallet } from './wallet.js';
 import {
   BudgetExceededError,
   ApiError,
@@ -72,16 +73,32 @@ export class BazaarClient {
   private readonly budgetTracker: BudgetTracker;
 
   constructor(config: BazaarClientConfig) {
-    if (!config.privateKey || !config.privateKey.startsWith('0x')) {
-      throw new InvalidConfigError(
-        'privateKey doit être une clé hex commençant par 0x'
-      );
+    let resolvedPrivateKey: `0x${string}`;
+
+    if (config.privateKey !== undefined) {
+      // Clé explicite fournie (même vide ou invalide)
+      if (!config.privateKey || !config.privateKey.startsWith('0x')) {
+        throw new InvalidConfigError(
+          'privateKey doit être une clé hex commençant par 0x'
+        );
+      }
+      resolvedPrivateKey = config.privateKey;
+    } else {
+      // Auto-wallet : charger ou créer
+      const wallet = loadOrCreateWallet(config.walletPath);
+      resolvedPrivateKey = wallet.privateKey;
+      if (wallet.isNew) {
+        console.log(
+          `[x402-sdk] Generated new wallet: ${wallet.address} — ` +
+          'Fund it with USDC to start calling paid APIs.'
+        );
+      }
     }
 
     const network = config.chain ?? config.network ?? DEFAULT_NETWORK;
 
     this.config = {
-      privateKey: config.privateKey,
+      privateKey: resolvedPrivateKey,
       baseUrl:    (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, ''),
       network,
       timeout:    config.timeout ?? DEFAULT_TIMEOUT,
@@ -134,10 +151,12 @@ export class BazaarClient {
 
     const json = await response.json() as unknown;
 
-    // Backend returns { data: [...], pagination } or a raw array
+    // Backend returns { data: [...], pagination } or { services: [...] } or a raw array
     if (Array.isArray(json)) return json;
-    if (json && typeof json === 'object' && 'data' in json && Array.isArray((json as any).data)) {
-      return (json as any).data;
+    if (json && typeof json === 'object') {
+      const obj = json as Record<string, unknown>;
+      if (Array.isArray(obj['data'])) return obj['data'] as ServiceInfo[];
+      if (Array.isArray(obj['services'])) return obj['services'] as ServiceInfo[];
     }
     return [];
   }

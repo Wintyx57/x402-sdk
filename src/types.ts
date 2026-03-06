@@ -10,8 +10,12 @@ export interface BudgetConfig {
 }
 
 export interface BazaarClientConfig {
-  /** Clé privée hex (0x...) pour les paiements automatiques */
-  privateKey: `0x${string}`;
+  /**
+   * Clé privée hex (0x...) pour les paiements automatiques.
+   * Si absente, un wallet est auto-généré et persisté dans
+   * ~/.x402-bazaar/sdk-wallet.json (chiffré AES-256-GCM).
+   */
+  privateKey?: `0x${string}`;
   /** URL de base du Bazaar (default: https://x402-api.onrender.com) */
   baseUrl?: string;
   /** Réseau blockchain (default: 'base') */
@@ -22,6 +26,12 @@ export interface BazaarClientConfig {
   budget?: BudgetConfig;
   /** Timeout en ms pour les requêtes HTTP (default: 30000) */
   timeout?: number;
+  /**
+   * Chemin personnalisé pour le fichier wallet auto-généré.
+   * Ignoré si privateKey est fourni.
+   * (défaut: ~/.x402-bazaar/sdk-wallet.json)
+   */
+  walletPath?: string;
 }
 
 export interface CallOptions {

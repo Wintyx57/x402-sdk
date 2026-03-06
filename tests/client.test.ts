@@ -104,6 +104,10 @@ const FIXTURE_402 = {
 
 // ─── Imports SDK ──────────────────────────────────────────────────────────────
 
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import { loadOrCreateWallet } from '../src/wallet.js';
 import { BazaarClient, createClient } from '../src/client.js';
 import {
   BudgetExceededError,
@@ -819,5 +823,109 @@ describe('createClient() — factory function', () => {
     const status = client.getBudgetStatus();
     assert.equal(status.limit, 2.0);
     assert.equal(status.period, 'weekly');
+  });
+});
+
+// ─── Auto-wallet (loadOrCreateWallet) ────────────────────────────────────────
+
+describe('loadOrCreateWallet() — génération et persistance', () => {
+  // Dossier temporaire isolé pour chaque test
+  function tmpWalletPath(): string {
+    return path.join(os.tmpdir(), `x402-sdk-test-wallet-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  }
+
+  it('génère un nouveau wallet si le fichier n\'existe pas', () => {
+    const walletPath = tmpWalletPath();
+    try {
+      const info = loadOrCreateWallet(walletPath);
+      assert.ok(info.isNew, 'isNew doit être true pour un nouveau wallet');
+      assert.ok(info.privateKey.startsWith('0x'), 'privateKey commence par 0x');
+      assert.ok(info.address.startsWith('0x'), 'address commence par 0x');
+      assert.equal(info.address.length, 42, 'adresse Ethereum de 42 caractères');
+    } finally {
+      if (fs.existsSync(walletPath)) fs.unlinkSync(walletPath);
+    }
+  });
+
+  it('persiste le wallet dans un fichier JSON chiffré', () => {
+    const walletPath = tmpWalletPath();
+    try {
+      loadOrCreateWallet(walletPath);
+      assert.ok(fs.existsSync(walletPath), 'le fichier wallet doit exister');
+      const raw = JSON.parse(fs.readFileSync(walletPath, 'utf-8'));
+      assert.ok('encrypted' in raw, 'champ encrypted présent');
+      assert.ok('iv' in raw, 'champ iv présent');
+      assert.ok('tag' in raw, 'champ tag présent');
+      assert.ok('address' in raw, 'champ address présent');
+      assert.ok('createdAt' in raw, 'champ createdAt présent');
+    } finally {
+      if (fs.existsSync(walletPath)) fs.unlinkSync(walletPath);
+    }
+  });
+
+  it('recharge le même wallet si le fichier existe déjà', () => {
+    const walletPath = tmpWalletPath();
+    try {
+      const first  = loadOrCreateWallet(walletPath);
+      const second = loadOrCreateWallet(walletPath);
+      assert.equal(first.privateKey, second.privateKey, 'même clé privée');
+      assert.equal(first.address, second.address, 'même adresse');
+      assert.equal(second.isNew, false, 'isNew=false au rechargement');
+    } finally {
+      if (fs.existsSync(walletPath)) fs.unlinkSync(walletPath);
+    }
+  });
+
+  it('le wallet rechargé a une adresse Ethereum valide', () => {
+    const walletPath = tmpWalletPath();
+    try {
+      loadOrCreateWallet(walletPath); // création
+      const info = loadOrCreateWallet(walletPath); // rechargement
+      assert.ok(info.address.startsWith('0x'));
+      assert.equal(info.address.length, 42);
+    } finally {
+      if (fs.existsSync(walletPath)) fs.unlinkSync(walletPath);
+    }
+  });
+});
+
+// ─── BazaarClient — auto-wallet sans privateKey ───────────────────────────────
+
+describe('BazaarClient — auto-wallet (sans privateKey)', () => {
+  function tmpWalletPath(): string {
+    return path.join(os.tmpdir(), `x402-sdk-client-wallet-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  }
+
+  it('crée un client sans fournir de privateKey', () => {
+    const walletPath = tmpWalletPath();
+    try {
+      const client = createClient({ chain: 'base', walletPath });
+      assert.ok(client instanceof BazaarClient);
+      assert.ok(client.walletAddress.startsWith('0x'));
+      assert.equal(client.walletAddress.length, 42);
+    } finally {
+      if (fs.existsSync(walletPath)) fs.unlinkSync(walletPath);
+    }
+  });
+
+  it('deux instances sans privateKey sur le même walletPath partagent la même adresse', () => {
+    const walletPath = tmpWalletPath();
+    try {
+      const c1 = createClient({ chain: 'base', walletPath });
+      const c2 = createClient({ chain: 'base', walletPath });
+      assert.equal(c1.walletAddress, c2.walletAddress);
+    } finally {
+      if (fs.existsSync(walletPath)) fs.unlinkSync(walletPath);
+    }
+  });
+
+  it('createClient sans privateKey respecte le réseau configuré', () => {
+    const walletPath = tmpWalletPath();
+    try {
+      const client = createClient({ chain: 'skale', walletPath });
+      assert.equal(client.network, 'skale');
+    } finally {
+      if (fs.existsSync(walletPath)) fs.unlinkSync(walletPath);
+    }
   });
 });

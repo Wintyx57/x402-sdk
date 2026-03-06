@@ -2,6 +2,8 @@
 
 export { BazaarClient, createClient } from './client.js';
 export { PaymentHandler } from './payment.js';
+export { loadOrCreateWallet, DEFAULT_SDK_WALLET_PATH } from './wallet.js';
+export type { WalletInfo } from './wallet.js';
 
 export {
   BazaarError,
