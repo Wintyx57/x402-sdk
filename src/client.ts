@@ -1,4 +1,4 @@
-// BazaarClient — client principal pour @x402/sdk
+// BazaarClient — main client for @wintyx/x402-sdk
 
 import type {
   BazaarClientConfig,
@@ -79,7 +79,7 @@ export class BazaarClient {
       // Clé explicite fournie (même vide ou invalide)
       if (!config.privateKey || !config.privateKey.startsWith('0x')) {
         throw new InvalidConfigError(
-          'privateKey doit être une clé hex commençant par 0x'
+          'privateKey must be a hex string starting with 0x'
         );
       }
       resolvedPrivateKey = config.privateKey;
@@ -295,7 +295,7 @@ export class BazaarClient {
 
     const found = services.find(s => s.endpoint === endpoint);
     if (!found) {
-      throw new ApiError(`Service non trouvé: ${endpoint}`, 404, endpoint);
+      throw new ApiError(`Service not found: ${endpoint}`, 404, endpoint);
     }
     return found;
   }
@@ -360,14 +360,14 @@ export class BazaarClient {
       return new TimeoutError(endpoint, timeout);
     }
     return new NetworkError(
-      `Erreur réseau sur ${endpoint}: ${err instanceof Error ? err.message : String(err)}`
+      `Network error on ${endpoint}: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 
   private async _buildApiError(response: Response, endpoint: string): Promise<ApiError> {
     const body = await response.json().catch(() => ({}));
     return new ApiError(
-      `API error ${response.status} sur ${endpoint}: ${JSON.stringify(body)}`,
+      `API error ${response.status} on ${endpoint}: ${JSON.stringify(body)}`,
       response.status,
       endpoint
     );
@@ -412,7 +412,7 @@ export class BazaarClient {
     const details = body.payment_details;
 
     if (!details) {
-      throw new ApiError('Réponse 402 sans payment_details', 402, endpoint);
+      throw new ApiError('402 response missing payment_details', 402, endpoint);
     }
 
     const amountUsdc = details.amount;
@@ -430,7 +430,7 @@ export class BazaarClient {
       | undefined;
 
     if (!recipient) {
-      throw new ApiError('Aucun destinataire dans payment_details', 402, endpoint);
+      throw new ApiError('No recipient found in payment_details', 402, endpoint);
     }
 
     // Envoyer le paiement USDC on-chain
@@ -475,16 +475,13 @@ export class BazaarClient {
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
 /**
- * Crée un client x402 Bazaar prêt à l'emploi.
+ * Creates an x402 Bazaar client ready to use.
  *
  * @example
  * ```ts
- * import { createClient } from '@x402/sdk';
+ * import { createClient } from '@wintyx/x402-sdk';
  *
- * const client = createClient({
- *   privateKey: process.env.AGENT_PRIVATE_KEY as `0x${string}`,
- *   chain: 'base',
- * });
+ * const client = createClient({ chain: 'base' });
  *
  * const services = await client.listServices();
  * const result   = await client.call('service-uuid', { q: 'hello' });

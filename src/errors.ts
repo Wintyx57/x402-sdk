@@ -1,4 +1,4 @@
-// Erreurs custom pour @x402/sdk
+// Custom errors for @wintyx/x402-sdk
 
 export class BazaarError extends Error {
   constructor(message: string, public readonly code: string) {
@@ -27,7 +27,7 @@ export class InsufficientBalanceError extends PaymentError {
     public readonly required: number
   ) {
     super(
-      `Solde USDC insuffisant: ${available.toFixed(6)} USDC disponible (besoin: ${required} USDC)`,
+      `Insufficient USDC balance: ${available.toFixed(6)} USDC available (need: ${required} USDC)`,
       { amount: required }
     );
     this.name = 'InsufficientBalanceError';
@@ -41,7 +41,7 @@ export class BudgetExceededError extends BazaarError {
     public readonly period: string
   ) {
     super(
-      `Budget ${period} dépassé: ${spent.toFixed(4)} USDC dépensé sur ${limit} USDC maximum`,
+      `${period} budget exceeded: ${spent.toFixed(4)} USDC spent out of ${limit} USDC maximum`,
       'BUDGET_EXCEEDED'
     );
     this.name = 'BudgetExceededError';
@@ -68,7 +68,7 @@ export class NetworkError extends BazaarError {
 
 export class TimeoutError extends BazaarError {
   constructor(endpoint: string, timeoutMs: number) {
-    super(`Timeout après ${timeoutMs}ms pour ${endpoint}`, 'TIMEOUT');
+    super(`Timeout after ${timeoutMs}ms for ${endpoint}`, 'TIMEOUT');
     this.name = 'TimeoutError';
   }
 }

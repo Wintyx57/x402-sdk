@@ -1,4 +1,4 @@
-// Payment handler — envoie des USDC via viem (multi-chain: Base, Base Sepolia, SKALE on Base)
+// Payment handler — sends USDC via viem (multi-chain: Base, Base Sepolia, SKALE on Base)
 
 import {
   createWalletClient,
@@ -139,7 +139,7 @@ export class PaymentHandler {
       return Number(balance) / 1_000_000;
     } catch (err) {
       throw new NetworkError(
-        `Impossible de récupérer le solde USDC sur ${this.network}`,
+        `Failed to fetch USDC balance on ${this.network}`,
         err instanceof Error ? err : undefined
       );
     }
@@ -176,7 +176,7 @@ export class PaymentHandler {
       });
     } catch (err) {
       throw new NetworkError(
-        `Impossible de vérifier le solde USDC sur ${this.network}`,
+        `Failed to check USDC balance on ${this.network}`,
         err instanceof Error ? err : undefined
       );
     }
@@ -200,7 +200,7 @@ export class PaymentHandler {
       });
     } catch (err) {
       throw new PaymentError(
-        `Échec du transfert USDC: ${err instanceof Error ? err.message : String(err)}`,
+        `USDC transfer failed: ${err instanceof Error ? err.message : String(err)}`,
         { amount: amountUsdc, recipient: toAddress }
       );
     }
@@ -213,7 +213,7 @@ export class PaymentHandler {
       });
     } catch (err) {
       throw new PaymentError(
-        `Transaction envoyée mais confirmation échouée: ${txHash}`,
+        `Transaction sent but confirmation failed: ${txHash}`,
         { txHash, amount: amountUsdc, recipient: toAddress }
       );
     }

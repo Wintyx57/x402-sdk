@@ -1,4 +1,4 @@
-// @x402/sdk — Point d'entrée principal
+// @wintyx/x402-sdk — Main entry point
 
 export { BazaarClient, createClient } from './client.js';
 export { PaymentHandler } from './payment.js';

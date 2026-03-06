@@ -1,4 +1,4 @@
-// Types TypeScript pour @x402/sdk
+// TypeScript types for @wintyx/x402-sdk
 
 export type Network = 'base' | 'base-sepolia' | 'skale';
 export type BudgetPeriod = 'daily' | 'weekly' | 'monthly';

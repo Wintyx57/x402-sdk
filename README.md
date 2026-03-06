@@ -1,29 +1,33 @@
-[![npm](https://img.shields.io/badge/npm-%40x402%2Fsdk-red)](https://www.npmjs.com/package/@x402/sdk)
+[![npm](https://img.shields.io/npm/v/@wintyx/x402-sdk)](https://www.npmjs.com/package/@wintyx/x402-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue)](https://www.typescriptlang.org/)
 [![x402 Protocol](https://img.shields.io/badge/Protocol-x402-orange)](https://x402bazaar.org)
 
-# @x402/sdk
+# @wintyx/x402-sdk
 
 TypeScript SDK for integrating [x402 Bazaar](https://x402bazaar.org) APIs into AI agents.
 
-Handles the full HTTP 402 payment cycle automatically: detect 402 response, pay USDC on-chain (Base or SKALE), retry with transaction proof. Zero configuration required beyond a private key.
+Handles the full HTTP 402 payment cycle automatically: detect 402 response, pay USDC on-chain (Base or SKALE), retry with transaction proof. **Zero configuration required** — the SDK auto-generates and encrypts a wallet if no private key is provided.
 
 ## Installation
 
 ```bash
-npm install @x402/sdk
+npm install @wintyx/x402-sdk
 ```
 
 ## Quick Start
 
 ```ts
-import { createClient } from '@x402/sdk';
+import { createClient } from '@wintyx/x402-sdk';
 
-const client = createClient({
-  privateKey: process.env.AGENT_PRIVATE_KEY as `0x${string}`,
-  chain: 'base', // or 'skale'
-});
+// Zero-config: auto-generates an encrypted wallet on first use
+const client = createClient({ chain: 'base' });
+
+// Or provide your own private key
+// const client = createClient({
+//   privateKey: process.env.AGENT_PRIVATE_KEY as `0x${string}`,
+//   chain: 'base',
+// });
 
 // List available APIs
 const services = await client.listServices();
@@ -36,6 +40,29 @@ const balance = await client.getBalance();
 console.log(`${balance} USDC available`);
 ```
 
+## Auto-Wallet
+
+When no `privateKey` is provided, the SDK automatically:
+
+1. **Generates** a new Ethereum private key
+2. **Encrypts** it with AES-256-GCM (key derived from machine identity: hostname + username + homedir)
+3. **Persists** it to `~/.x402-bazaar/sdk-wallet.json`
+4. **Reuses** the same wallet on subsequent calls
+
+The wallet file is distinct from the MCP wallet (`wallet.json`) to avoid collisions. Fund it with USDC to start calling paid APIs.
+
+```ts
+import { createClient, loadOrCreateWallet } from '@wintyx/x402-sdk';
+
+// Auto-wallet (recommended for agents)
+const client = createClient({ chain: 'base' });
+console.log(`Wallet: ${client.walletAddress}`);
+
+// Or manage the wallet directly
+const wallet = loadOrCreateWallet();
+console.log(`Address: ${wallet.address}, new: ${wallet.isNew}`);
+```
+
 ## API
 
 ### `createClient(config)` — Factory function
@@ -44,7 +71,6 @@ The recommended way to create a client.
 
 ```ts
 const client = createClient({
-  privateKey: '0x...',
   chain: 'base',
   budget: { max: 5.0, period: 'daily' },
   timeout: 30000,
@@ -53,12 +79,13 @@ const client = createClient({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `privateKey` | `` `0x${string}` `` | required | Agent wallet private key |
+| `privateKey` | `` `0x${string}` `` | auto-generated | Agent wallet private key (optional — auto-generates encrypted wallet if omitted) |
 | `chain` | `'base' \| 'base-sepolia' \| 'skale'` | `'base'` | Blockchain network |
 | `network` | same as `chain` | `'base'` | Alias for `chain` |
 | `baseUrl` | `string` | `https://x402-api.onrender.com` | Bazaar API URL |
 | `budget` | `{ max: number, period: 'daily'\|'weekly'\|'monthly' }` | unlimited | Spending cap (local tracking) |
 | `timeout` | `number` | `30000` | HTTP timeout in ms |
+| `walletPath` | `string` | `~/.x402-bazaar/sdk-wallet.json` | Custom path for auto-generated wallet file |
 
 ### `client.call(serviceId, params?, options?)`
 
@@ -81,7 +108,7 @@ Returns all services available on the Bazaar.
 
 ```ts
 const services = await client.listServices();
-// ServiceInfo[] with id, name, description, endpoint, price_usdc, category, ...
+// ServiceInfo[] with id, name, description, url, price_usdc, category, ...
 ```
 
 ### `client.searchServices(query)`
@@ -99,7 +126,7 @@ Returns a single service by its UUID.
 
 ```ts
 const service = await client.getService('uuid-weather');
-// { id, name, description, endpoint, price_usdc, category, ... }
+// { id, name, description, url, price_usdc, category, ... }
 ```
 
 ### `client.getBalance()`
@@ -162,7 +189,7 @@ import {
   ApiError,
   NetworkError,
   TimeoutError,
-} from '@x402/sdk';
+} from '@wintyx/x402-sdk';
 
 try {
   const result = await client.call('uuid-image', { prompt: 'A cat' });
@@ -224,15 +251,15 @@ The SDK ships both ESM and CJS builds:
 
 ```js
 // CommonJS
-const { createClient } = require('@x402/sdk');
+const { createClient } = require('@wintyx/x402-sdk');
 ```
 
 ```ts
 // ESM / TypeScript
-import { createClient } from '@x402/sdk';
+import { createClient } from '@wintyx/x402-sdk';
 ```
 
-## Available APIs (69+ endpoints)
+## Available APIs (71+ endpoints)
 
 | Endpoint | Price | Description |
 |----------|-------|-------------|
@@ -247,7 +274,7 @@ import { createClient } from '@x402/sdk';
 | `/api/crypto` | 0.001 USDC | Crypto prices |
 | `/api/stocks` | 0.005 USDC | Stock prices |
 | `/api/news` | 0.005 USDC | Latest news |
-| ... | | 58+ more |
+| ... | | 60+ more |
 
 Full list: [x402bazaar.org/services](https://x402bazaar.org/services) or `client.listServices()`
 
