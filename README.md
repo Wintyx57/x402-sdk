@@ -162,6 +162,22 @@ const health = await client.health();
 // { status: 'ok', version: '1.0.0', network: 'Base', uptime_seconds: 3600 }
 ```
 
+### `client.fundWallet()`
+
+Returns funding instructions to bridge USDC from any chain to SKALE via the Trails SDK. No network call — returns local info instantly.
+
+```ts
+const funding = await client.fundWallet();
+// {
+//   bridgeUrl: 'https://x402bazaar.org/fund',
+//   walletAddress: '0x...',
+//   supportedChains: ['Ethereum', 'Polygon', 'Arbitrum', 'Optimism', 'Base'],
+//   bridgeTime: '5-15 minutes (IMA bridge to SKALE)',
+//   minimumAmount: '0.10 USDC',
+//   howItWorks: 'Trails SDK routes tokens from any chain → USDC on Base → IMA bridge → SKALE on Base.'
+// }
+```
+
 ### `client.callDirect(endpoint, params?, options?)`
 
 Calls an API endpoint directly (bypasses the proxy). Use `call()` instead when possible to benefit from the server-side 95/5 revenue split.
