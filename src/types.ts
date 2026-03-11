@@ -109,3 +109,12 @@ export interface PaymentResult {
   from: string;
   amount: number;
 }
+
+export interface FundingInfo {
+  bridgeUrl: string;
+  walletAddress: string;
+  supportedChains: string[];
+  bridgeTime: string;
+  minimumAmount: string;
+  howItWorks: string;
+}

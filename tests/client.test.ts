@@ -826,6 +826,56 @@ describe('createClient() — factory function', () => {
   });
 });
 
+// ─── fundWallet() ─────────────────────────────────────────────────────────────
+
+describe('BazaarClient.fundWallet()', () => {
+  it('retourne les infos de bridge avec la bonne bridgeUrl', async () => {
+    const client = createClient(BASE_CONFIG);
+    const info = await client.fundWallet();
+    assert.equal(info.bridgeUrl, 'https://x402bazaar.org/fund');
+  });
+
+  it('contient Base dans supportedChains', async () => {
+    const client = createClient(BASE_CONFIG);
+    const info = await client.fundWallet();
+    assert.ok(info.supportedChains.includes('Base'));
+  });
+
+  it('walletAddress est l\'adresse Ethereum du client', async () => {
+    const client = createClient(BASE_CONFIG);
+    const info = await client.fundWallet();
+    assert.equal(info.walletAddress, client.walletAddress);
+    assert.ok(info.walletAddress.startsWith('0x'));
+    assert.equal(info.walletAddress.length, 42);
+  });
+
+  it('tous les champs requis sont présents et non vides', async () => {
+    const client = createClient(BASE_CONFIG);
+    const info = await client.fundWallet();
+    assert.ok(info.bridgeUrl, 'bridgeUrl requis');
+    assert.ok(info.walletAddress, 'walletAddress requis');
+    assert.ok(Array.isArray(info.supportedChains) && info.supportedChains.length > 0, 'supportedChains non vide');
+    assert.ok(info.bridgeTime, 'bridgeTime requis');
+    assert.ok(info.minimumAmount, 'minimumAmount requis');
+    assert.ok(info.howItWorks, 'howItWorks requis');
+  });
+
+  it('ne fait pas d\'appel réseau (méthode purement locale)', async () => {
+    const client = createClient(BASE_CONFIG);
+    let fetchCalled = false;
+    setFetch(async () => {
+      fetchCalled = true;
+      return { status: 200, ok: true, json: async () => ({}) };
+    });
+    try {
+      await client.fundWallet();
+      assert.equal(fetchCalled, false, 'aucun appel réseau attendu');
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
 // ─── Auto-wallet (loadOrCreateWallet) ────────────────────────────────────────
 
 describe('loadOrCreateWallet() — génération et persistance', () => {

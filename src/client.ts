@@ -8,6 +8,7 @@ import type {
   HealthResponse,
   PaymentRequiredResponse,
   Network,
+  FundingInfo,
 } from './types.js';
 import { PaymentHandler } from './payment.js';
 import { loadOrCreateWallet } from './wallet.js';
@@ -332,6 +333,22 @@ export class BazaarClient {
     const url = `${this.baseUrl}/health`;
     const response = await this._fetchSafe(url, {}, '/health');
     return response.json() as Promise<HealthResponse>;
+  }
+
+  /**
+   * Get funding instructions to bridge USDC to your wallet.
+   * Returns bridge URL and wallet info for cross-chain bridging via Trails SDK.
+   */
+  async fundWallet(): Promise<FundingInfo> {
+    const address = this.walletAddress;
+    return {
+      bridgeUrl: `https://x402bazaar.org/fund`,
+      walletAddress: address,
+      supportedChains: ['Ethereum', 'Polygon', 'Arbitrum', 'Optimism', 'Base'],
+      bridgeTime: '5-15 minutes (IMA bridge to SKALE)',
+      minimumAmount: '0.10 USDC',
+      howItWorks: 'Trails SDK routes tokens from any chain → USDC on Base → IMA bridge → SKALE on Base. Visit the bridge URL to start.',
+    };
   }
 
   // ─── Méthodes privées ─────────────────────────────────────────────────────

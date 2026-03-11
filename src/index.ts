@@ -29,4 +29,5 @@ export type {
   PaymentResult,
   Network,
   NetworkInfo,
+  FundingInfo,
 } from './types.js';
