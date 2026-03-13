@@ -1,6 +1,6 @@
 // TypeScript types for @wintyx/x402-sdk
 
-export type Network = 'base' | 'base-sepolia' | 'skale';
+export type Network = 'base' | 'base-sepolia' | 'skale' | 'polygon';
 export type BudgetPeriod = 'daily' | 'weekly' | 'monthly';
 
 export interface BudgetConfig {

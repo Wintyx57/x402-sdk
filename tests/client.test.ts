@@ -939,6 +939,248 @@ describe('loadOrCreateWallet() — génération et persistance', () => {
   });
 });
 
+// ─── Polygon chain support ────────────────────────────────────────────────────
+
+import { PaymentHandler } from '../src/payment.js';
+
+describe('PaymentHandler — Polygon chain', () => {
+  it('instancie un PaymentHandler sur polygon', () => {
+    const handler = new PaymentHandler(TEST_PRIVATE_KEY, 'polygon');
+    assert.ok(handler instanceof PaymentHandler);
+    assert.ok(handler.walletAddress.startsWith('0x'));
+    assert.equal(handler.walletAddress.length, 42);
+  });
+
+  it('createClient accepte chain polygon', () => {
+    const client = createClient({
+      privateKey: TEST_PRIVATE_KEY,
+      chain: 'polygon',
+    });
+    assert.equal(client.network, 'polygon');
+  });
+
+  it('walletAddress polygon identique à celui d\'autres réseaux (même clé)', () => {
+    const handlerBase    = new PaymentHandler(TEST_PRIVATE_KEY, 'base');
+    const handlerPolygon = new PaymentHandler(TEST_PRIVATE_KEY, 'polygon');
+    // Même clé privée → même adresse Ethereum, quel que soit le réseau
+    assert.equal(handlerBase.walletAddress, handlerPolygon.walletAddress);
+  });
+});
+
+// ─── sendViaFacilitator — tests unitaires (fetch mocké) ──────────────────────
+
+describe('PaymentHandler.sendViaFacilitator()', () => {
+  const FACILITATOR_URL  = 'https://x402.polygon.technology';
+  const RECIPIENT        = '0xfb1c478BD5567BdcD39782E0D6D23418bFda2430' as `0x${string}`;
+  const FEE_SPLITTER     = '0x820d4b07D09e5E07598464E6E36cB12561e0Ba56' as `0x${string}`;
+  const FAKE_TX          = '0xabc123def456abc123def456abc123def456abc123def456abc123def456abc1' as `0x${string}`;
+
+  it('lève PaymentError si le réseau n\'est pas polygon', async () => {
+    const handler = new PaymentHandler(TEST_PRIVATE_KEY, 'base');
+    await assert.rejects(
+      () => handler.sendViaFacilitator(RECIPIENT, 0.005, FACILITATOR_URL),
+      (err: unknown) => {
+        assert.ok(err instanceof PaymentError);
+        // Le message mentionne "Polygon" (case-insensitive)
+        assert.ok((err as PaymentError).message.toLowerCase().includes('polygon'));
+        return true;
+      }
+    );
+  });
+
+  it('retourne un PaymentResult avec txHash si le facilitateur répond success', async () => {
+    // signTypedData de viem avec un LocalAccount (privateKeyToAccount) est purement local
+    // — aucun appel RPC nécessaire. On peut donc tester le flux complet avec fetch mocké.
+    const handler = new PaymentHandler(TEST_PRIVATE_KEY, 'polygon');
+
+    type CapturedSettle = {
+      x402Version: number;
+      paymentPayload: { network: string; payload: { signature: string; authorization: unknown } };
+      paymentRequirements: { network: string; payTo: string; asset: string };
+    };
+    let capturedBody: CapturedSettle | undefined;
+
+    setFetch(async (_url: string, init?: RequestInit) => {
+      assert.equal(init?.method, 'POST');
+      capturedBody = JSON.parse(init?.body as string) as CapturedSettle;
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({ success: true, transaction: FAKE_TX }),
+      };
+    });
+
+    try {
+      const result = await handler.sendViaFacilitator(RECIPIENT, 0.005, FACILITATOR_URL);
+
+      // Vérifier le PaymentResult
+      assert.equal(result.txHash, FAKE_TX);
+      assert.ok(result.explorer.includes('polygonscan.com'));
+      assert.ok(result.explorer.includes(FAKE_TX));
+      assert.equal(result.amount, 0.005);
+      assert.ok(result.from.startsWith('0x'));
+
+      // Vérifier que le payload envoyé est bien structuré
+      assert.ok(capturedBody !== undefined, 'capturedBody doit être défini');
+      const body = capturedBody as CapturedSettle;
+      assert.equal(body.x402Version, 1);
+      assert.equal(body.paymentPayload.network, 'polygon');
+      assert.equal(body.paymentRequirements.payTo, RECIPIENT);
+      assert.equal(body.paymentRequirements.asset, '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359');
+      // La signature EIP-3009 doit commencer par 0x
+      assert.ok((body.paymentPayload.payload.signature as string).startsWith('0x'));
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('lève PaymentError si le facilitateur répond success: false', async () => {
+    const handler = new PaymentHandler(TEST_PRIVATE_KEY, 'polygon');
+
+    setFetch(async () => ({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        success: false,
+        errorReason: 'Insufficient allowance',
+      }),
+    }));
+
+    try {
+      await assert.rejects(
+        () => handler.sendViaFacilitator(RECIPIENT, 0.005, FACILITATOR_URL),
+        (err: unknown) => {
+          assert.ok(err instanceof PaymentError);
+          return true;
+        }
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('lève PaymentError si le réseau est base et qu\'on appelle sendViaFacilitator', async () => {
+    const handler = new PaymentHandler(TEST_PRIVATE_KEY, 'base');
+    await assert.rejects(
+      () => handler.sendViaFacilitator(RECIPIENT, 0.005, FACILITATOR_URL),
+      (err: unknown) => err instanceof PaymentError
+    );
+  });
+
+  it('lève PaymentError si le réseau est skale et qu\'on appelle sendViaFacilitator', async () => {
+    const handler = new PaymentHandler(TEST_PRIVATE_KEY, 'skale');
+    await assert.rejects(
+      () => handler.sendViaFacilitator(RECIPIENT, 0.005, FACILITATOR_URL),
+      (err: unknown) => err instanceof PaymentError
+    );
+  });
+
+  it('accepte feeSplitterContract et l\'utilise comme destinataire de l\'autorisation', async () => {
+    const handler = new PaymentHandler(TEST_PRIVATE_KEY, 'polygon');
+
+    type CapturedAuth = { from: string; to: string };
+    let capturedAuthorization: CapturedAuth | undefined;
+
+    setFetch(async (_url: string, init?: RequestInit) => {
+      type BodyType = {
+        paymentPayload: { payload: { authorization: CapturedAuth } };
+        paymentRequirements: { payTo: string };
+      };
+      const body = JSON.parse(init?.body as string) as BodyType;
+      capturedAuthorization = body.paymentPayload.payload.authorization;
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({ success: true, transaction: FAKE_TX }),
+      };
+    });
+
+    try {
+      const result = await handler.sendViaFacilitator(RECIPIENT, 0.005, FACILITATOR_URL, FEE_SPLITTER);
+
+      // Le résultat doit être un PaymentResult valide
+      assert.equal(result.txHash, FAKE_TX);
+      assert.equal(result.amount, 0.005);
+
+      // Le FeeSplitter doit être le `to` dans l'autorisation EIP-3009
+      assert.ok(capturedAuthorization !== undefined, 'authorization doit être présente dans le payload');
+      const auth = capturedAuthorization as CapturedAuth;
+      assert.equal(
+        auth.to.toLowerCase(),
+        FEE_SPLITTER.toLowerCase(),
+        'authorization.to doit être le FeeSplitter'
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('PaymentResult a les bons champs si on reçoit un txHash valide', () => {
+    // Test de la structure PaymentResult directement (sans appel réseau)
+    const result: import('../src/types.js').PaymentResult = {
+      txHash: FAKE_TX,
+      explorer: `https://polygonscan.com/tx/${FAKE_TX}`,
+      from: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
+      amount: 0.005,
+    };
+    assert.ok(result.txHash.startsWith('0x'));
+    assert.ok(result.explorer.includes('polygonscan.com'));
+    assert.equal(result.amount, 0.005);
+  });
+});
+
+// ─── BazaarClient — chain polygon via createClient ───────────────────────────
+
+describe('BazaarClient — Polygon integration', () => {
+  it('createClient avec chain polygon a le bon network', () => {
+    const client = createClient({
+      privateKey: TEST_PRIVATE_KEY,
+      chain: 'polygon',
+    });
+    assert.equal(client.network, 'polygon');
+  });
+
+  it('walletAddress est dérivé de la clé privée (polygon)', () => {
+    const client = createClient({
+      privateKey: TEST_PRIVATE_KEY,
+      chain: 'polygon',
+    });
+    assert.ok(client.walletAddress.startsWith('0x'));
+    assert.equal(client.walletAddress.length, 42);
+  });
+
+  it('getBudgetStatus fonctionne avec chain polygon', () => {
+    const client = createClient({
+      privateKey: TEST_PRIVATE_KEY,
+      chain: 'polygon',
+      budget: { max: 5.0, period: 'daily' },
+    });
+    const status = client.getBudgetStatus();
+    assert.equal(status.limit, 5.0);
+    assert.equal(status.period, 'daily');
+    assert.equal(status.spent, 0);
+  });
+
+  it('listServices fonctionne avec chain polygon (réseau agnostique)', async () => {
+    const client = createClient({
+      privateKey: TEST_PRIVATE_KEY,
+      chain: 'polygon',
+      baseUrl: 'https://mock.bazaar.test',
+    });
+
+    setFetch(makeFetch([
+      { status: 200, ok: true, json: async () => ({ services: FIXTURE_SERVICES }) },
+    ]));
+
+    try {
+      const services = await client.listServices();
+      assert.equal(services.length, 3);
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
 // ─── BazaarClient — auto-wallet sans privateKey ───────────────────────────────
 
 describe('BazaarClient — auto-wallet (sans privateKey)', () => {
