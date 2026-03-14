@@ -7,7 +7,7 @@
 
 TypeScript SDK for integrating [x402 Bazaar](https://x402bazaar.org) APIs into AI agents.
 
-Handles the full HTTP 402 payment cycle automatically: detect 402 response, pay USDC on-chain (Base or SKALE), retry with transaction proof. **Zero configuration required** — the SDK auto-generates and encrypts a wallet if no private key is provided.
+Handles the full HTTP 402 payment cycle automatically: detect 402 response, pay USDC on-chain (Base, SKALE, or Polygon), retry with transaction proof. **Zero configuration required** — the SDK auto-generates and encrypts a wallet if no private key is provided.
 
 ## Installation
 
@@ -80,7 +80,7 @@ const client = createClient({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `privateKey` | `` `0x${string}` `` | auto-generated | Agent wallet private key (optional — auto-generates encrypted wallet if omitted) |
-| `chain` | `'base' \| 'base-sepolia' \| 'skale'` | `'base'` | Blockchain network |
+| `chain` | `'base' \| 'base-sepolia' \| 'skale' \| 'polygon'` | `'base'` | Blockchain network |
 | `network` | same as `chain` | `'base'` | Alias for `chain` |
 | `baseUrl` | `string` | `https://x402-api.onrender.com` | Bazaar API URL |
 | `budget` | `{ max: number, period: 'daily'\|'weekly'\|'monthly' }` | unlimited | Spending cap (local tracking) |
@@ -233,6 +233,7 @@ try {
 | `base` | 8453 | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | ~$0.001 |
 | `base-sepolia` | 84532 | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | Testnet |
 | `skale` | 1187947933 | `0x85889c8c714505E0c94b30fcfcF64fE3Ac8FCb20` | ~$0.0007 (CREDITS) |
+| `polygon` | 137 | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | ~$0.001 (MATIC) |
 
 SKALE on Base offers ultra-low gas fees via CREDITS token (~$0.0007 per transfer). Each RPC has fallback endpoints configured automatically.
 
@@ -275,7 +276,7 @@ const { createClient } = require('@wintyx/x402-sdk');
 import { createClient } from '@wintyx/x402-sdk';
 ```
 
-## Available APIs (71+ endpoints)
+## Available APIs (74+ endpoints)
 
 | Endpoint | Price | Description |
 |----------|-------|-------------|
@@ -298,7 +299,7 @@ Full list: [x402bazaar.org/services](https://x402bazaar.org/services) or `client
 
 | Repository | Description |
 |---|---|
-| **[x402-backend](https://github.com/Wintyx57/x402-backend)** | API server, 69 native endpoints, payment middleware, MCP server |
+| **[x402-backend](https://github.com/Wintyx57/x402-backend)** | API server, 74 native endpoints, payment middleware, MCP server |
 | **[x402-frontend](https://github.com/Wintyx57/x402-frontend)** | React + TypeScript marketplace UI |
 | **[x402-bazaar-cli](https://github.com/Wintyx57/x402-bazaar-cli)** | `npx x402-bazaar` — CLI with 7 commands |
 | **[x402-sdk](https://github.com/Wintyx57/x402-sdk)** | TypeScript SDK for AI agents (this repo) |
