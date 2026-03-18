@@ -446,6 +446,11 @@ export class BazaarClient {
     this.budgetTracker.callCount += 1;
   }
 
+  private _reverseSpending(amountUsdc: number): void {
+    this.budgetTracker.spent = Math.max(0, this.budgetTracker.spent - amountUsdc);
+    this.budgetTracker.callCount = Math.max(0, this.budgetTracker.callCount - 1);
+  }
+
   private async _handlePayment<T>(
     initial402Response: Response,
     urlStr: string,
@@ -518,7 +523,18 @@ export class BazaarClient {
       }
 
       if (response.ok) {
-        return response.json() as Promise<T>;
+        const result = await response.json() as T;
+
+        // Handle auto-refund: USDC returned on-chain
+        const r = result as Record<string, unknown>;
+        if (r['_payment_status'] === 'refunded') {
+          this._reverseSpending(amountUsdc);
+          // Extract serviceId from endpoint path
+          const match = endpoint.match(/\/api\/call\/([^/?]+)/);
+          if (match) this._addToBlacklist(match[1], 'refunded_bad_response');
+        }
+
+        return result;
       }
 
       retries++;
