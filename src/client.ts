@@ -208,21 +208,24 @@ export class BazaarClient {
     const maxRetries = options.maxRetries ?? 1;
     const endpoint   = `/api/call/${encodeURIComponent(serviceId)}`;
 
-    // Construire l'URL avec query params
-    const url = new URL(`${this.baseUrl}${endpoint}`);
-    for (const [k, v] of Object.entries(params)) {
-      url.searchParams.set(k, String(v));
-    }
+    // Les params sont envoyés dans le body JSON (POST) — jamais en query string
+    const url = `${this.baseUrl}${endpoint}`;
 
     const baseHeaders: Record<string, string> = {
       'Content-Type':    'application/json',
       'X-Agent-Wallet':  this.paymentHandler.walletAddress,
     };
 
+    const bodyStr = Object.keys(params).length > 0 ? JSON.stringify(params) : undefined;
+
     // Première tentative — sans paiement
     let response: Response;
     try {
-      response = await fetchWithTimeout(url.toString(), { headers: baseHeaders }, timeout);
+      response = await fetchWithTimeout(
+        url,
+        { method: 'POST', headers: baseHeaders, body: bodyStr },
+        timeout
+      );
     } catch (err) {
       throw this._wrapFetchError(err, endpoint, timeout);
     }
@@ -234,7 +237,7 @@ export class BazaarClient {
     // 402 Payment Required — payer et retenter
     if (response.status === 402) {
       return this._handlePayment<T>(
-        response, url.toString(), baseHeaders, endpoint, timeout, maxRetries
+        response, url, baseHeaders, bodyStr, endpoint, timeout, maxRetries
       );
     }
 
@@ -278,7 +281,7 @@ export class BazaarClient {
 
     if (response.status === 402) {
       return this._handlePayment<T>(
-        response, url.toString(), baseHeaders, endpoint, timeout, maxRetries
+        response, url.toString(), baseHeaders, undefined, endpoint, timeout, maxRetries
       );
     }
 
@@ -421,6 +424,7 @@ export class BazaarClient {
     initial402Response: Response,
     urlStr: string,
     baseHeaders: Record<string, string>,
+    requestBody: string | undefined,
     endpoint: string,
     timeout: number,
     maxRetries: number
@@ -456,19 +460,29 @@ export class BazaarClient {
     // Enregistrer la dépense localement
     this._recordSpending(amountUsdc);
 
-    // Retenter avec le tx hash
+    // Retenter avec le tx hash — backoff exponentiel : 1s, 2s, 4s
     const paidHeaders: Record<string, string> = {
       ...baseHeaders,
       'X-Payment-TxHash': payment.txHash,
       'X-Payment-Chain':  this.config.network,
     };
 
+    // Méthode et body identiques à la requête initiale (POST pour call(), GET pour callDirect())
+    const fetchInit: RequestInit = requestBody !== undefined
+      ? { method: 'POST', headers: paidHeaders, body: requestBody }
+      : { headers: paidHeaders };
+
     let retries = 0;
     let response: Response;
 
-    while (true) {
+    while (retries <= maxRetries) {
+      // Backoff exponentiel avant chaque retry (pas avant le premier essai)
+      if (retries > 0) {
+        await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, retries - 1), 4000)));
+      }
+
       try {
-        response = await fetchWithTimeout(urlStr, { headers: paidHeaders }, timeout);
+        response = await fetchWithTimeout(urlStr, fetchInit, timeout);
       } catch (err) {
         if (retries >= maxRetries) {
           throw this._wrapFetchError(err, endpoint, timeout);
@@ -481,7 +495,6 @@ export class BazaarClient {
         return response.json() as Promise<T>;
       }
 
-      if (retries >= maxRetries) break;
       retries++;
     }
 
