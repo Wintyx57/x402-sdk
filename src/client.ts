@@ -20,11 +20,14 @@ import {
   InvalidConfigError,
 } from './errors.js';
 
+import { createHmac, timingSafeEqual } from 'crypto';
+
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const DEFAULT_BASE_URL = 'https://x402-api.onrender.com';
 const DEFAULT_TIMEOUT  = 30_000;
 const DEFAULT_NETWORK: Network = 'base';
+const BLACKLIST_TTL    = 10 * 60 * 1000; // 10 minutes
 
 // ─── Types internes ───────────────────────────────────────────────────────────
 
@@ -32,6 +35,11 @@ interface BudgetTracker {
   spent: number;
   callCount: number;
   periodStart: Date;
+}
+
+interface BlacklistEntry {
+  reason: string;
+  until: number;
 }
 
 interface ResolvedConfig {
@@ -72,6 +80,8 @@ export class BazaarClient {
   private readonly timeout: number;
   private readonly config: ResolvedConfig;
   private readonly budgetTracker: BudgetTracker;
+  private readonly serviceBlacklist: Map<string, BlacklistEntry> = new Map();
+  private readonly validationSecret: string | null;
 
   constructor(config: BazaarClientConfig) {
     let resolvedPrivateKey: `0x${string}`;
@@ -119,6 +129,8 @@ export class BazaarClient {
       callCount:   0,
       periodStart: new Date(),
     };
+
+    this.validationSecret = config.validationSecret ?? null;
   }
 
   // ─── Accesseurs ──────────────────────────────────────────────────────────
@@ -204,6 +216,16 @@ export class BazaarClient {
     params: Record<string, string | number | boolean> = {},
     options: CallOptions = {}
   ): Promise<T> {
+    // Blacklist check
+    const blocked = this._checkBlacklist(serviceId);
+    if (blocked) {
+      throw new ApiError(
+        `Service ${serviceId} temporarily blocked: ${blocked.reason}. Try an alternative.`,
+        403,
+        `/api/call/${serviceId}`
+      );
+    }
+
     const timeout    = options.timeout    ?? this.timeout;
     const maxRetries = options.maxRetries ?? 1;
     const endpoint   = `/api/call/${encodeURIComponent(serviceId)}`;
@@ -231,14 +253,18 @@ export class BazaarClient {
     }
 
     if (response.ok) {
-      return response.json() as Promise<T>;
+      const result = await response.json() as T;
+      this._verifyResponse(result, serviceId);
+      return result;
     }
 
     // 402 Payment Required — payer et retenter
     if (response.status === 402) {
-      return this._handlePayment<T>(
+      const result = await this._handlePayment<T>(
         response, url, baseHeaders, bodyStr, endpoint, timeout, maxRetries
       );
+      this._verifyResponse(result, serviceId);
+      return result;
     }
 
     throw await this._buildApiError(response, endpoint);
@@ -499,6 +525,78 @@ export class BazaarClient {
     }
 
     throw await this._buildApiError(response!, endpoint);
+  }
+
+  // ─── Client-side Validation (Zero Trust) ─────────────────────────────────
+
+  private _checkBlacklist(serviceId: string): BlacklistEntry | null {
+    const entry = this.serviceBlacklist.get(serviceId);
+    if (!entry) return null;
+    if (Date.now() > entry.until) {
+      this.serviceBlacklist.delete(serviceId);
+      return null;
+    }
+    return entry;
+  }
+
+  private _addToBlacklist(serviceId: string, reason: string): void {
+    this.serviceBlacklist.set(serviceId, {
+      reason,
+      until: Date.now() + BLACKLIST_TTL,
+    });
+  }
+
+  private _verifyResponse(result: unknown, serviceId: string): void {
+    if (!result || typeof result !== 'object') return;
+    const r = result as Record<string, unknown>;
+    const x402 = r['_x402'] as Record<string, unknown> | undefined;
+    if (!x402 || !x402['_validation']) return;
+
+    const v = x402['_validation'] as Record<string, unknown>;
+
+    // A. Verify HMAC signature if secret configured
+    if (this.validationSecret && v['signature']) {
+      const { signature, ...meta } = v;
+      const sorted = Object.keys(meta).sort().reduce<Record<string, unknown>>((o, k) => {
+        o[k] = meta[k];
+        return o;
+      }, {});
+      const expected = createHmac('sha256', this.validationSecret)
+        .update(JSON.stringify(sorted))
+        .digest('hex');
+      if (typeof signature === 'string' && expected.length === signature.length) {
+        const isValid = timingSafeEqual(
+          Buffer.from(expected, 'hex'),
+          Buffer.from(signature, 'hex')
+        );
+        if (!isValid) {
+          this._addToBlacklist(serviceId, 'signature_mismatch');
+        }
+      }
+    }
+
+    // B. Quick independent quality check
+    const serverScore = typeof v['quality_score'] === 'number' ? v['quality_score'] : 0;
+    const data = r['data'];
+    const clientScore = this._quickClientScore(data);
+    if (serverScore > 0.7 && clientScore < 0.2) {
+      this._addToBlacklist(serviceId, 'score_discrepancy');
+    }
+  }
+
+  private _quickClientScore(data: unknown): number {
+    if (data == null) return 0;
+    if (typeof data !== 'object') {
+      return typeof data === 'string' && (data as string).length > 0 ? 0.5 : 0.3;
+    }
+    const keys = Object.keys(data as object);
+    if (keys.length === 0) return 0.1;
+    let useful = 0;
+    for (const k of keys) {
+      const v = (data as Record<string, unknown>)[k];
+      if (v !== null && v !== undefined && v !== '') useful++;
+    }
+    return Math.min(1, useful / Math.max(keys.length, 1));
   }
 }
 

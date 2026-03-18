@@ -32,6 +32,12 @@ export interface BazaarClientConfig {
    * (défaut: ~/.x402-bazaar/sdk-wallet.json)
    */
   walletPath?: string;
+  /**
+   * HMAC secret for server-side validation signature verification.
+   * Must match the backend VALIDATION_SECRET env var.
+   * Optional — if absent, HMAC verification is skipped.
+   */
+  validationSecret?: string;
 }
 
 export interface CallOptions {
