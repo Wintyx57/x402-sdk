@@ -9,25 +9,25 @@ import type {
   PaymentRequiredResponse,
   Network,
   FundingInfo,
-} from './types.js';
-import { PaymentHandler } from './payment.js';
-import { loadOrCreateWallet } from './wallet.js';
+} from "./types.js";
+import { PaymentHandler } from "./payment.js";
+import { loadOrCreateWallet } from "./wallet.js";
 import {
   BudgetExceededError,
   ApiError,
   NetworkError,
   TimeoutError,
   InvalidConfigError,
-} from './errors.js';
+} from "./errors.js";
 
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual } from "crypto";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const DEFAULT_BASE_URL = 'https://x402-api.onrender.com';
-const DEFAULT_TIMEOUT  = 30_000;
-const DEFAULT_NETWORK: Network = 'base';
-const BLACKLIST_TTL    = 10 * 60 * 1000; // 10 minutes
+const DEFAULT_BASE_URL = "https://x402-api.onrender.com";
+const DEFAULT_TIMEOUT = 30_000;
+const DEFAULT_NETWORK: Network = "skale";
+const BLACKLIST_TTL = 10 * 60 * 1000; // 10 minutes
 
 // ─── Types internes ───────────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ interface ResolvedConfig {
   baseUrl: string;
   network: Network;
   timeout: number;
-  budget: { max: number; period: 'daily' | 'weekly' | 'monthly' };
+  budget: { max: number; period: "daily" | "weekly" | "monthly" };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -55,20 +55,23 @@ interface ResolvedConfig {
 function fetchWithTimeout(
   url: string,
   init: RequestInit,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...init, signal: controller.signal }).finally(() =>
-    clearTimeout(timer)
+    clearTimeout(timer),
   );
 }
 
-function getPeriodMs(period: 'daily' | 'weekly' | 'monthly'): number {
+function getPeriodMs(period: "daily" | "weekly" | "monthly"): number {
   switch (period) {
-    case 'daily':   return 24 * 60 * 60 * 1000;
-    case 'weekly':  return 7 * 24 * 60 * 60 * 1000;
-    case 'monthly': return 30 * 24 * 60 * 60 * 1000;
+    case "daily":
+      return 24 * 60 * 60 * 1000;
+    case "weekly":
+      return 7 * 24 * 60 * 60 * 1000;
+    case "monthly":
+      return 30 * 24 * 60 * 60 * 1000;
   }
 }
 
@@ -88,9 +91,9 @@ export class BazaarClient {
 
     if (config.privateKey !== undefined) {
       // Clé explicite fournie (même vide ou invalide)
-      if (!config.privateKey || !config.privateKey.startsWith('0x')) {
+      if (!config.privateKey || !config.privateKey.startsWith("0x")) {
         throw new InvalidConfigError(
-          'privateKey must be a hex string starting with 0x'
+          "privateKey must be a hex string starting with 0x",
         );
       }
       resolvedPrivateKey = config.privateKey;
@@ -101,7 +104,7 @@ export class BazaarClient {
       if (wallet.isNew) {
         console.log(
           `[x402-sdk] Generated new wallet: ${wallet.address} — ` +
-          'Fund it with USDC to start calling paid APIs.'
+            "Fund it with USDC to start calling paid APIs.",
         );
       }
     }
@@ -110,10 +113,10 @@ export class BazaarClient {
 
     this.config = {
       privateKey: resolvedPrivateKey,
-      baseUrl:    (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, ''),
+      baseUrl: (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, ""),
       network,
-      timeout:    config.timeout ?? DEFAULT_TIMEOUT,
-      budget:     config.budget ?? { max: Infinity, period: 'daily' },
+      timeout: config.timeout ?? DEFAULT_TIMEOUT,
+      budget: config.budget ?? { max: Infinity, period: "daily" },
     };
 
     this.baseUrl = this.config.baseUrl;
@@ -121,12 +124,12 @@ export class BazaarClient {
 
     this.paymentHandler = new PaymentHandler(
       this.config.privateKey,
-      this.config.network
+      this.config.network,
     );
 
     this.budgetTracker = {
-      spent:       0,
-      callCount:   0,
+      spent: 0,
+      callCount: 0,
       periodStart: new Date(),
     };
 
@@ -160,36 +163,42 @@ export class BazaarClient {
    */
   async listServices(): Promise<ServiceInfo[]> {
     const url = `${this.baseUrl}/api/services?limit=200`;
-    const response = await this._fetchSafe(url, {}, '/api/services');
+    const response = await this._fetchSafe(url, {}, "/api/services");
 
-    const json = await response.json() as unknown;
+    const json = (await response.json()) as unknown;
 
     // Backend returns { data: [...], pagination } or { services: [...] } or a raw array
     if (Array.isArray(json)) return json;
-    if (json && typeof json === 'object') {
+    if (json && typeof json === "object") {
       const obj = json as Record<string, unknown>;
-      if (Array.isArray(obj['data'])) return obj['data'] as ServiceInfo[];
-      if (Array.isArray(obj['services'])) return obj['services'] as ServiceInfo[];
+      if (Array.isArray(obj["data"])) return obj["data"] as ServiceInfo[];
+      if (Array.isArray(obj["services"]))
+        return obj["services"] as ServiceInfo[];
     }
     return [];
   }
 
   /**
-   * Recherche des services par mot-clé (filtre côté client sur name + description).
-   * Pour une recherche serveur, utiliser listServices() puis filtrer.
+   * Recherche des services via le smart search Gemini AI côté backend.
+   * Appelle GET /search?q=<query> pour bénéficier du ranking sémantique.
    */
   async searchServices(query: string): Promise<ServiceInfo[]> {
-    const all = await this.listServices();
-    const q = query.toLowerCase().trim();
-    if (!q) return all;
+    const q = query.trim();
+    if (!q) return this.listServices();
 
-    return all.filter(
-      s =>
-        s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q) ||
-        (s.category ?? '').toLowerCase().includes(q) ||
-        (s.tags ?? []).some((t: string) => t.toLowerCase().includes(q))
-    );
+    const url = `${this.baseUrl}/search?q=${encodeURIComponent(q)}`;
+    const response = await this._fetchSafe(url, {}, "/search");
+    const json = (await response.json()) as unknown;
+
+    if (Array.isArray(json)) return json as ServiceInfo[];
+    if (json && typeof json === "object") {
+      const obj = json as Record<string, unknown>;
+      if (Array.isArray(obj["data"])) return obj["data"] as ServiceInfo[];
+      if (Array.isArray(obj["services"]))
+        return obj["services"] as ServiceInfo[];
+      if (Array.isArray(obj["results"])) return obj["results"] as ServiceInfo[];
+    }
+    return [];
   }
 
   /**
@@ -198,7 +207,11 @@ export class BazaarClient {
    */
   async getService(serviceId: string): Promise<ServiceInfo> {
     const url = `${this.baseUrl}/api/services/${encodeURIComponent(serviceId)}`;
-    const response = await this._fetchSafe(url, {}, `/api/services/${serviceId}`);
+    const response = await this._fetchSafe(
+      url,
+      {},
+      `/api/services/${serviceId}`,
+    );
     return response.json() as Promise<ServiceInfo>;
   }
 
@@ -214,7 +227,7 @@ export class BazaarClient {
   async call<T = unknown>(
     serviceId: string,
     params: Record<string, string | number | boolean> = {},
-    options: CallOptions = {}
+    options: CallOptions = {},
   ): Promise<T> {
     // Blacklist check
     const blocked = this._checkBlacklist(serviceId);
@@ -222,38 +235,39 @@ export class BazaarClient {
       throw new ApiError(
         `Service ${serviceId} temporarily blocked: ${blocked.reason}. Try an alternative.`,
         403,
-        `/api/call/${serviceId}`
+        `/api/call/${serviceId}`,
       );
     }
 
-    const timeout    = options.timeout    ?? this.timeout;
+    const timeout = options.timeout ?? this.timeout;
     const maxRetries = options.maxRetries ?? 1;
-    const endpoint   = `/api/call/${encodeURIComponent(serviceId)}`;
+    const endpoint = `/api/call/${encodeURIComponent(serviceId)}`;
 
     // Les params sont envoyés dans le body JSON (POST) — jamais en query string
     const url = `${this.baseUrl}${endpoint}`;
 
     const baseHeaders: Record<string, string> = {
-      'Content-Type':    'application/json',
-      'X-Agent-Wallet':  this.paymentHandler.walletAddress,
+      "Content-Type": "application/json",
+      "X-Agent-Wallet": this.paymentHandler.walletAddress,
     };
 
-    const bodyStr = Object.keys(params).length > 0 ? JSON.stringify(params) : undefined;
+    const bodyStr =
+      Object.keys(params).length > 0 ? JSON.stringify(params) : undefined;
 
     // Première tentative — sans paiement
     let response: Response;
     try {
       response = await fetchWithTimeout(
         url,
-        { method: 'POST', headers: baseHeaders, body: bodyStr },
-        timeout
+        { method: "POST", headers: baseHeaders, body: bodyStr },
+        timeout,
       );
     } catch (err) {
       throw this._wrapFetchError(err, endpoint, timeout);
     }
 
     if (response.ok) {
-      const result = await response.json() as T;
+      const result = (await response.json()) as T;
       this._verifyResponse(result, serviceId);
       return result;
     }
@@ -261,7 +275,13 @@ export class BazaarClient {
     // 402 Payment Required — payer et retenter
     if (response.status === 402) {
       const result = await this._handlePayment<T>(
-        response, url, baseHeaders, bodyStr, endpoint, timeout, maxRetries
+        response,
+        url,
+        baseHeaders,
+        bodyStr,
+        endpoint,
+        timeout,
+        maxRetries,
       );
       this._verifyResponse(result, serviceId);
       return result;
@@ -281,9 +301,9 @@ export class BazaarClient {
   async callDirect<T = unknown>(
     endpoint: string,
     params: Record<string, string | number | boolean> = {},
-    options: CallOptions = {}
+    options: CallOptions = {},
   ): Promise<T> {
-    const timeout    = options.timeout    ?? this.timeout;
+    const timeout = options.timeout ?? this.timeout;
     const maxRetries = options.maxRetries ?? 1;
 
     const url = new URL(`${this.baseUrl}${endpoint}`);
@@ -292,13 +312,17 @@ export class BazaarClient {
     }
 
     const baseHeaders: Record<string, string> = {
-      'Content-Type':   'application/json',
-      'X-Agent-Wallet': this.paymentHandler.walletAddress,
+      "Content-Type": "application/json",
+      "X-Agent-Wallet": this.paymentHandler.walletAddress,
     };
 
     let response: Response;
     try {
-      response = await fetchWithTimeout(url.toString(), { headers: baseHeaders }, timeout);
+      response = await fetchWithTimeout(
+        url.toString(),
+        { headers: baseHeaders },
+        timeout,
+      );
     } catch (err) {
       throw this._wrapFetchError(err, endpoint, timeout);
     }
@@ -307,7 +331,13 @@ export class BazaarClient {
 
     if (response.status === 402) {
       return this._handlePayment<T>(
-        response, url.toString(), baseHeaders, undefined, endpoint, timeout, maxRetries
+        response,
+        url.toString(),
+        baseHeaders,
+        undefined,
+        endpoint,
+        timeout,
+        maxRetries,
       );
     }
 
@@ -323,7 +353,7 @@ export class BazaarClient {
     const services = await this.listServices();
     if (!endpoint) return services;
 
-    const found = services.find(s => s.endpoint === endpoint);
+    const found = services.find((s) => s.endpoint === endpoint);
     if (!found) {
       throw new ApiError(`Service not found: ${endpoint}`, 404, endpoint);
     }
@@ -333,25 +363,26 @@ export class BazaarClient {
   /** Statut du budget courant (tracking local, reset automatique par période) */
   getBudgetStatus(): BudgetStatus {
     const { budget } = this.config;
-    const periodMs   = getPeriodMs(budget.period);
-    const elapsed    = Date.now() - this.budgetTracker.periodStart.getTime();
+    const periodMs = getPeriodMs(budget.period);
+    const elapsed = Date.now() - this.budgetTracker.periodStart.getTime();
 
     if (elapsed >= periodMs) {
-      this.budgetTracker.spent       = 0;
-      this.budgetTracker.callCount   = 0;
+      this.budgetTracker.spent = 0;
+      this.budgetTracker.callCount = 0;
       this.budgetTracker.periodStart = new Date();
     }
 
     const remaining = Math.max(0, budget.max - this.budgetTracker.spent);
-    const resetAt   = budget.max === Infinity
-      ? null
-      : new Date(this.budgetTracker.periodStart.getTime() + periodMs);
+    const resetAt =
+      budget.max === Infinity
+        ? null
+        : new Date(this.budgetTracker.periodStart.getTime() + periodMs);
 
     return {
-      spent:     this.budgetTracker.spent,
-      limit:     budget.max,
+      spent: this.budgetTracker.spent,
+      limit: budget.max,
       remaining,
-      period:    budget.period,
+      period: budget.period,
       callCount: this.budgetTracker.callCount,
       resetAt,
     };
@@ -360,7 +391,7 @@ export class BazaarClient {
   /** Health check du backend Bazaar */
   async health(): Promise<HealthResponse> {
     const url = `${this.baseUrl}/health`;
-    const response = await this._fetchSafe(url, {}, '/health');
+    const response = await this._fetchSafe(url, {}, "/health");
     return response.json() as Promise<HealthResponse>;
   }
 
@@ -373,10 +404,11 @@ export class BazaarClient {
     return {
       bridgeUrl: `https://x402bazaar.org/fund`,
       walletAddress: address,
-      supportedChains: ['Ethereum', 'Polygon', 'Arbitrum', 'Optimism', 'Base'],
-      bridgeTime: '5-15 minutes (IMA bridge to SKALE)',
-      minimumAmount: '0.10 USDC',
-      howItWorks: 'Trails SDK routes tokens from any chain → USDC on Base → IMA bridge → SKALE on Base. Visit the bridge URL to start.',
+      supportedChains: ["Ethereum", "Polygon", "Arbitrum", "Optimism", "Base"],
+      bridgeTime: "5-15 minutes (IMA bridge to SKALE)",
+      minimumAmount: "0.10 USDC",
+      howItWorks:
+        "Trails SDK routes tokens from any chain → USDC on Base → IMA bridge → SKALE on Base. Visit the bridge URL to start.",
     };
   }
 
@@ -385,7 +417,7 @@ export class BazaarClient {
   private async _fetchSafe(
     url: string,
     init: RequestInit,
-    label: string
+    label: string,
   ): Promise<Response> {
     let response: Response;
     try {
@@ -401,21 +433,28 @@ export class BazaarClient {
     return response;
   }
 
-  private _wrapFetchError(err: unknown, endpoint: string, timeout: number): Error {
-    if (err instanceof Error && err.name === 'AbortError') {
+  private _wrapFetchError(
+    err: unknown,
+    endpoint: string,
+    timeout: number,
+  ): Error {
+    if (err instanceof Error && err.name === "AbortError") {
       return new TimeoutError(endpoint, timeout);
     }
     return new NetworkError(
-      `Network error on ${endpoint}: ${err instanceof Error ? err.message : String(err)}`
+      `Network error on ${endpoint}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
-  private async _buildApiError(response: Response, endpoint: string): Promise<ApiError> {
+  private async _buildApiError(
+    response: Response,
+    endpoint: string,
+  ): Promise<ApiError> {
     const body = await response.json().catch(() => ({}));
     return new ApiError(
       `API error ${response.status} on ${endpoint}: ${JSON.stringify(body)}`,
       response.status,
-      endpoint
+      endpoint,
     );
   }
 
@@ -424,11 +463,11 @@ export class BazaarClient {
     if (budget.max === Infinity) return;
 
     const periodMs = getPeriodMs(budget.period);
-    const elapsed  = Date.now() - this.budgetTracker.periodStart.getTime();
+    const elapsed = Date.now() - this.budgetTracker.periodStart.getTime();
 
     if (elapsed >= periodMs) {
-      this.budgetTracker.spent       = 0;
-      this.budgetTracker.callCount   = 0;
+      this.budgetTracker.spent = 0;
+      this.budgetTracker.callCount = 0;
       this.budgetTracker.periodStart = new Date();
     }
 
@@ -436,19 +475,25 @@ export class BazaarClient {
       throw new BudgetExceededError(
         this.budgetTracker.spent,
         budget.max,
-        budget.period
+        budget.period,
       );
     }
   }
 
   private _recordSpending(amountUsdc: number): void {
-    this.budgetTracker.spent     += amountUsdc;
+    this.budgetTracker.spent += amountUsdc;
     this.budgetTracker.callCount += 1;
   }
 
   private _reverseSpending(amountUsdc: number): void {
-    this.budgetTracker.spent = Math.max(0, this.budgetTracker.spent - amountUsdc);
-    this.budgetTracker.callCount = Math.max(0, this.budgetTracker.callCount - 1);
+    this.budgetTracker.spent = Math.max(
+      0,
+      this.budgetTracker.spent - amountUsdc,
+    );
+    this.budgetTracker.callCount = Math.max(
+      0,
+      this.budgetTracker.callCount - 1,
+    );
   }
 
   private async _handlePayment<T>(
@@ -458,13 +503,13 @@ export class BazaarClient {
     requestBody: string | undefined,
     endpoint: string,
     timeout: number,
-    maxRetries: number
+    maxRetries: number,
   ): Promise<T> {
     const body = (await initial402Response.json()) as PaymentRequiredResponse;
     const details = body.payment_details;
 
     if (!details) {
-      throw new ApiError('402 response missing payment_details', 402, endpoint);
+      throw new ApiError("402 response missing payment_details", 402, endpoint);
     }
 
     const amountUsdc = details.amount;
@@ -474,7 +519,7 @@ export class BazaarClient {
 
     // Trouver le bon réseau parmi ceux acceptés par le serveur
     const targetNetwork =
-      details.networks?.find(n => n.network === this.config.network) ??
+      details.networks?.find((n) => n.network === this.config.network) ??
       details.networks?.[0];
 
     const recipient = (details.recipient ?? targetNetwork?.usdc_contract) as
@@ -482,7 +527,11 @@ export class BazaarClient {
       | undefined;
 
     if (!recipient) {
-      throw new ApiError('No recipient found in payment_details', 402, endpoint);
+      throw new ApiError(
+        "No recipient found in payment_details",
+        402,
+        endpoint,
+      );
     }
 
     // Envoyer le paiement USDC on-chain
@@ -494,14 +543,15 @@ export class BazaarClient {
     // Retenter avec le tx hash — backoff exponentiel : 1s, 2s, 4s
     const paidHeaders: Record<string, string> = {
       ...baseHeaders,
-      'X-Payment-TxHash': payment.txHash,
-      'X-Payment-Chain':  this.config.network,
+      "X-Payment-TxHash": payment.txHash,
+      "X-Payment-Chain": this.config.network,
     };
 
     // Méthode et body identiques à la requête initiale (POST pour call(), GET pour callDirect())
-    const fetchInit: RequestInit = requestBody !== undefined
-      ? { method: 'POST', headers: paidHeaders, body: requestBody }
-      : { headers: paidHeaders };
+    const fetchInit: RequestInit =
+      requestBody !== undefined
+        ? { method: "POST", headers: paidHeaders, body: requestBody }
+        : { headers: paidHeaders };
 
     let retries = 0;
     let response: Response;
@@ -509,7 +559,9 @@ export class BazaarClient {
     while (retries <= maxRetries) {
       // Backoff exponentiel avant chaque retry (pas avant le premier essai)
       if (retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, retries - 1), 4000)));
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(1000 * Math.pow(2, retries - 1), 4000)),
+        );
       }
 
       try {
@@ -523,15 +575,15 @@ export class BazaarClient {
       }
 
       if (response.ok) {
-        const result = await response.json() as T;
+        const result = (await response.json()) as T;
 
         // Handle auto-refund: USDC returned on-chain
         const r = result as Record<string, unknown>;
-        if (r['_payment_status'] === 'refunded') {
+        if (r["_payment_status"] === "refunded") {
           this._reverseSpending(amountUsdc);
           // Extract serviceId from endpoint path
           const match = endpoint.match(/\/api\/call\/([^/?]+)/);
-          if (match) this._addToBlacklist(match[1], 'refunded_bad_response');
+          if (match) this._addToBlacklist(match[1], "refunded_bad_response");
         }
 
         return result;
@@ -563,54 +615,62 @@ export class BazaarClient {
   }
 
   private _verifyResponse(result: unknown, serviceId: string): void {
-    if (!result || typeof result !== 'object') return;
+    if (!result || typeof result !== "object") return;
     const r = result as Record<string, unknown>;
-    const x402 = r['_x402'] as Record<string, unknown> | undefined;
-    if (!x402 || !x402['_validation']) return;
+    const x402 = r["_x402"] as Record<string, unknown> | undefined;
+    if (!x402 || !x402["_validation"]) return;
 
-    const v = x402['_validation'] as Record<string, unknown>;
+    const v = x402["_validation"] as Record<string, unknown>;
 
     // A. Verify HMAC signature if secret configured
-    if (this.validationSecret && v['signature']) {
+    if (this.validationSecret && v["signature"]) {
       const { signature, ...meta } = v;
-      const sorted = Object.keys(meta).sort().reduce<Record<string, unknown>>((o, k) => {
-        o[k] = meta[k];
-        return o;
-      }, {});
-      const expected = createHmac('sha256', this.validationSecret)
+      const sorted = Object.keys(meta)
+        .sort()
+        .reduce<Record<string, unknown>>((o, k) => {
+          o[k] = meta[k];
+          return o;
+        }, {});
+      const expected = createHmac("sha256", this.validationSecret)
         .update(JSON.stringify(sorted))
-        .digest('hex');
-      if (typeof signature === 'string' && expected.length === signature.length) {
+        .digest("hex");
+      if (
+        typeof signature === "string" &&
+        expected.length === signature.length
+      ) {
         const isValid = timingSafeEqual(
-          Buffer.from(expected, 'hex'),
-          Buffer.from(signature, 'hex')
+          Buffer.from(expected, "hex"),
+          Buffer.from(signature, "hex"),
         );
         if (!isValid) {
-          this._addToBlacklist(serviceId, 'signature_mismatch');
+          this._addToBlacklist(serviceId, "signature_mismatch");
         }
       }
     }
 
     // B. Quick independent quality check
-    const serverScore = typeof v['quality_score'] === 'number' ? v['quality_score'] : 0;
-    const data = r['data'];
+    const serverScore =
+      typeof v["quality_score"] === "number" ? v["quality_score"] : 0;
+    const data = r["data"];
     const clientScore = this._quickClientScore(data);
     if (serverScore > 0.7 && clientScore < 0.2) {
-      this._addToBlacklist(serviceId, 'score_discrepancy');
+      this._addToBlacklist(serviceId, "score_discrepancy");
     }
   }
 
   private _quickClientScore(data: unknown): number {
     if (data == null) return 0;
-    if (typeof data !== 'object') {
-      return typeof data === 'string' && (data as string).length > 0 ? 0.5 : 0.3;
+    if (typeof data !== "object") {
+      return typeof data === "string" && (data as string).length > 0
+        ? 0.5
+        : 0.3;
     }
     const keys = Object.keys(data as object);
     if (keys.length === 0) return 0.1;
     let useful = 0;
     for (const k of keys) {
       const v = (data as Record<string, unknown>)[k];
-      if (v !== null && v !== undefined && v !== '') useful++;
+      if (v !== null && v !== undefined && v !== "") useful++;
     }
     return Math.min(1, useful / Math.max(keys.length, 1));
   }

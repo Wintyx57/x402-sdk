@@ -1,7 +1,7 @@
 // TypeScript types for @wintyx/x402-sdk
 
-export type Network = 'base' | 'base-sepolia' | 'skale' | 'polygon';
-export type BudgetPeriod = 'daily' | 'weekly' | 'monthly';
+export type Network = "base" | "base-sepolia" | "skale" | "polygon";
+export type BudgetPeriod = "daily" | "weekly" | "monthly";
 
 export interface BudgetConfig {
   /** Montant maximum en USDC par période */
@@ -18,7 +18,7 @@ export interface BazaarClientConfig {
   privateKey?: `0x${string}`;
   /** URL de base du Bazaar (default: https://x402-api.onrender.com) */
   baseUrl?: string;
-  /** Réseau blockchain (default: 'base') */
+  /** Réseau blockchain (default: 'skale') */
   chain?: Network;
   /** Alias de `chain` pour compatibilité */
   network?: Network;
