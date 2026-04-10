@@ -276,7 +276,7 @@ const { createClient } = require('@wintyx/x402-sdk');
 import { createClient } from '@wintyx/x402-sdk';
 ```
 
-## Available APIs (74+ endpoints)
+## Available APIs (112+ endpoints)
 
 | Endpoint | Price | Description |
 |----------|-------|-------------|
@@ -291,7 +291,7 @@ import { createClient } from '@wintyx/x402-sdk';
 | `/api/crypto` | 0.001 USDC | Crypto prices |
 | `/api/stocks` | 0.005 USDC | Stock prices |
 | `/api/news` | 0.005 USDC | Latest news |
-| ... | | 60+ more |
+| ... | | 100+ more |
 
 Full list: [x402bazaar.org/services](https://x402bazaar.org/services) or `client.listServices()`
 
@@ -299,7 +299,7 @@ Full list: [x402bazaar.org/services](https://x402bazaar.org/services) or `client
 
 | Repository | Description |
 |---|---|
-| **[x402-backend](https://github.com/Wintyx57/x402-backend)** | API server, 74 native endpoints, payment middleware, MCP server |
+| **[x402-backend](https://github.com/Wintyx57/x402-backend)** | API server, 112 native endpoints, payment middleware, MCP server |
 | **[x402-frontend](https://github.com/Wintyx57/x402-frontend)** | React + TypeScript marketplace UI |
 | **[x402-bazaar-cli](https://github.com/Wintyx57/x402-bazaar-cli)** | `npx x402-bazaar` — CLI with 7 commands |
 | **[x402-sdk](https://github.com/Wintyx57/x402-sdk)** | TypeScript SDK for AI agents (this repo) |
