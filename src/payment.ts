@@ -1,6 +1,6 @@
 // Payment handler — sends USDC via viem (multi-chain: Base, Base Sepolia, SKALE on Base, Polygon)
 
-import { randomBytes } from 'crypto';
+import { randomBytes } from "crypto";
 import {
   createWalletClient,
   createPublicClient,
@@ -8,11 +8,15 @@ import {
   fallback,
   type Hash,
   type Address,
-} from 'viem';
-import { base, baseSepolia } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
-import type { Network, PaymentResult } from './types.js';
-import { PaymentError, InsufficientBalanceError, NetworkError } from './errors.js';
+} from "viem";
+import { base, baseSepolia } from "viem/chains";
+import { privateKeyToAccount } from "viem/accounts";
+import type { Network, PaymentResult } from "./types.js";
+import {
+  PaymentError,
+  InsufficientBalanceError,
+  NetworkError,
+} from "./errors.js";
 
 // ─── Configuration des réseaux ────────────────────────────────────────────────
 
@@ -31,65 +35,65 @@ interface ChainConfig {
 
 const CHAIN_CONFIGS: Record<Network, ChainConfig> = {
   base: {
-    usdcContract: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    usdcContract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     rpcUrls: [
-      'https://mainnet.base.org',
-      'https://base.llamarpc.com',
-      'https://1rpc.io/base',
+      "https://mainnet.base.org",
+      "https://base.llamarpc.com",
+      "https://1rpc.io/base",
     ],
-    explorer: 'https://basescan.org',
+    explorer: "https://basescan.org",
     confirmations: 2,
   },
-  'base-sepolia': {
-    usdcContract: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-    rpcUrls: ['https://sepolia.base.org'],
-    explorer: 'https://sepolia.basescan.org',
+  "base-sepolia": {
+    usdcContract: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    rpcUrls: ["https://sepolia.base.org"],
+    explorer: "https://sepolia.basescan.org",
     confirmations: 1,
   },
   skale: {
-    usdcContract: '0x85889c8c714505E0c94b30fcfcF64fE3Ac8FCb20',
+    usdcContract: "0x85889c8c714505E0c94b30fcfcF64fE3Ac8FCb20",
     rpcUrls: [
-      'https://skale-base.skalenodes.com/v1/base',
-      'https://1187947933.rpc.thirdweb.com',
+      "https://skale-base.skalenodes.com/v1/base",
+      "https://1187947933.rpc.thirdweb.com",
     ],
-    explorer: 'https://skale-base-explorer.skalenodes.com',
+    explorer: "https://skale-base-explorer.skalenodes.com",
     chainId: 1187947933,
-    chainName: 'SKALE on Base',
-    nativeCurrency: { name: 'CREDITS', symbol: 'CREDITS', decimals: 18 },
+    chainName: "SKALE on Base",
+    nativeCurrency: { name: "CREDITS", symbol: "CREDITS", decimals: 18 },
     confirmations: 1,
-    usdcDecimals: 18, // USDC bridge-wrapped sur SKALE a 18 décimales
+    usdcDecimals: 6, // USDC on SKALE: verified on-chain via decimals() on 0x85889c8c714505E0c94b30fcfcF64fE3Ac8FCb20 → returns 6
   },
   polygon: {
-    usdcContract: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', // Circle native USDC (6 décimales)
+    usdcContract: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", // Circle native USDC (6 décimales)
     rpcUrls: [
-      'https://polygon-bor-rpc.publicnode.com',
-      'https://polygon.publicnode.com',
+      "https://polygon-bor-rpc.publicnode.com",
+      "https://polygon.publicnode.com",
     ],
-    explorer: 'https://polygonscan.com',
+    explorer: "https://polygonscan.com",
     chainId: 137,
-    chainName: 'Polygon',
-    nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
+    chainName: "Polygon",
+    nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
     confirmations: 2,
   },
 };
 
 const USDC_ABI = [
   {
-    name: 'transfer',
-    type: 'function',
+    name: "transfer",
+    type: "function",
     inputs: [
-      { name: 'to', type: 'address' },
-      { name: 'amount', type: 'uint256' },
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
     ],
-    outputs: [{ type: 'bool' }],
-    stateMutability: 'nonpayable',
+    outputs: [{ type: "bool" }],
+    stateMutability: "nonpayable",
   },
   {
-    name: 'balanceOf',
-    type: 'function',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ type: 'uint256' }],
-    stateMutability: 'view',
+    name: "balanceOf",
+    type: "function",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
   },
 ] as const;
 
@@ -97,37 +101,37 @@ const USDC_ABI = [
 
 /** Domaine EIP-712 pour USDC (Circle native, Polygon mainnet) */
 const POLYGON_EIP712_DOMAIN = {
-  name: 'USD Coin',
-  version: '2',
+  name: "USD Coin",
+  version: "2",
   chainId: 137,
-  verifyingContract: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359' as Address,
+  verifyingContract: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359" as Address,
 } as const;
 
 /** Types EIP-712 pour TransferWithAuthorization (EIP-3009) */
 const TRANSFER_WITH_AUTHORIZATION_TYPES = {
   TransferWithAuthorization: [
-    { name: 'from',        type: 'address' },
-    { name: 'to',          type: 'address' },
-    { name: 'value',       type: 'uint256' },
-    { name: 'validAfter',  type: 'uint256' },
-    { name: 'validBefore', type: 'uint256' },
-    { name: 'nonce',       type: 'bytes32' },
+    { name: "from", type: "address" },
+    { name: "to", type: "address" },
+    { name: "value", type: "uint256" },
+    { name: "validAfter", type: "uint256" },
+    { name: "validBefore", type: "uint256" },
+    { name: "nonce", type: "bytes32" },
   ],
 } as const;
 
 /** Payload d'autorisation EIP-3009 */
 interface Eip3009Authorization {
-  from:        Address;
-  to:          Address;
-  value:       string; // uint256 en string
-  validAfter:  string;
+  from: Address;
+  to: Address;
+  value: string; // uint256 en string
+  validAfter: string;
   validBefore: string;
-  nonce:       `0x${string}`;
+  nonce: `0x${string}`;
 }
 
 /** Réponse brute du facilitateur Polygon */
 interface FacilitatorResponse {
-  success:     boolean;
+  success: boolean;
   transaction?: string;
   errorReason?: string;
 }
@@ -135,11 +139,11 @@ interface FacilitatorResponse {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getViemChain(network: Network) {
-  if (network === 'base') return base;
-  if (network === 'base-sepolia') return baseSepolia;
+  if (network === "base") return base;
+  if (network === "base-sepolia") return baseSepolia;
 
   // SKALE on Base — définition manuelle car absent de viem/chains
-  if (network === 'skale') {
+  if (network === "skale") {
     const cfg = CHAIN_CONFIGS.skale;
     return {
       id: cfg.chainId!,
@@ -166,7 +170,7 @@ function getViemChain(network: Network) {
 function buildTransport(network: Network) {
   const { rpcUrls } = CHAIN_CONFIGS[network];
   if (rpcUrls.length === 1) return http(rpcUrls[0]);
-  return fallback(rpcUrls.map(url => http(url)));
+  return fallback(rpcUrls.map((url) => http(url)));
 }
 
 /** Convertit un montant USDC en unités brutes selon les décimales du réseau */
@@ -188,7 +192,7 @@ export class PaymentHandler {
   private readonly network: Network;
   private readonly usdcContract: Address;
 
-  constructor(privateKey: `0x${string}`, network: Network = 'base') {
+  constructor(privateKey: `0x${string}`, network: Network = "base") {
     this.privateKey = privateKey;
     this.network = network;
     this.usdcContract = CHAIN_CONFIGS[network].usdcContract;
@@ -204,7 +208,7 @@ export class PaymentHandler {
     const transport = buildTransport(this.network);
 
     const publicClient = createPublicClient({
-      chain: chain as Parameters<typeof createPublicClient>[0]['chain'],
+      chain: chain as Parameters<typeof createPublicClient>[0]["chain"],
       transport,
     });
 
@@ -212,32 +216,35 @@ export class PaymentHandler {
       const balance = await publicClient.readContract({
         address: this.usdcContract,
         abi: USDC_ABI,
-        functionName: 'balanceOf',
+        functionName: "balanceOf",
         args: [account.address],
       });
       return fromRawUnits(balance, this.network);
     } catch (err) {
       throw new NetworkError(
         `Failed to fetch USDC balance on ${this.network}`,
-        err instanceof Error ? err : undefined
+        err instanceof Error ? err : undefined,
       );
     }
   }
 
-  async sendUsdc(toAddress: Address, amountUsdc: number): Promise<PaymentResult> {
+  async sendUsdc(
+    toAddress: Address,
+    amountUsdc: number,
+  ): Promise<PaymentResult> {
     const account = privateKeyToAccount(this.privateKey);
     const chain = getViemChain(this.network);
     const transport = buildTransport(this.network);
     const { confirmations, explorer } = CHAIN_CONFIGS[this.network];
 
     const publicClient = createPublicClient({
-      chain: chain as Parameters<typeof createPublicClient>[0]['chain'],
+      chain: chain as Parameters<typeof createPublicClient>[0]["chain"],
       transport,
     });
 
     const walletClient = createWalletClient({
       account,
-      chain: chain as Parameters<typeof createWalletClient>[0]['chain'],
+      chain: chain as Parameters<typeof createWalletClient>[0]["chain"],
       transport,
     });
 
@@ -249,20 +256,20 @@ export class PaymentHandler {
       balance = await publicClient.readContract({
         address: this.usdcContract,
         abi: USDC_ABI,
-        functionName: 'balanceOf',
+        functionName: "balanceOf",
         args: [account.address],
       });
     } catch (err) {
       throw new NetworkError(
         `Failed to check USDC balance on ${this.network}`,
-        err instanceof Error ? err : undefined
+        err instanceof Error ? err : undefined,
       );
     }
 
     if (balance < amountRaw) {
       throw new InsufficientBalanceError(
         fromRawUnits(balance, this.network),
-        amountUsdc
+        amountUsdc,
       );
     }
 
@@ -272,14 +279,14 @@ export class PaymentHandler {
       txHash = await walletClient.writeContract({
         address: this.usdcContract,
         abi: USDC_ABI,
-        functionName: 'transfer',
+        functionName: "transfer",
         args: [toAddress, amountRaw],
         chain: null,
       });
     } catch (err) {
       throw new PaymentError(
         `USDC transfer failed: ${err instanceof Error ? err.message : String(err)}`,
-        { amount: amountUsdc, recipient: toAddress }
+        { amount: amountUsdc, recipient: toAddress },
       );
     }
 
@@ -292,7 +299,7 @@ export class PaymentHandler {
     } catch (err) {
       throw new PaymentError(
         `Transaction sent but confirmation failed: ${txHash}`,
-        { txHash, amount: amountUsdc, recipient: toAddress }
+        { txHash, amount: amountUsdc, recipient: toAddress },
       );
     }
 
@@ -321,12 +328,12 @@ export class PaymentHandler {
     toAddress: Address,
     amountUsdc: number,
     facilitatorUrl: string,
-    feeSplitterContract?: Address
+    feeSplitterContract?: Address,
   ): Promise<PaymentResult> {
-    if (this.network !== 'polygon') {
+    if (this.network !== "polygon") {
       throw new PaymentError(
-        'sendViaFacilitator is only supported on the Polygon network',
-        { amount: amountUsdc, recipient: toAddress }
+        "sendViaFacilitator is only supported on the Polygon network",
+        { amount: amountUsdc, recipient: toAddress },
       );
     }
 
@@ -335,20 +342,20 @@ export class PaymentHandler {
 
     // Nonce aléatoire 32 bytes
     const nonceBytes = randomBytes(32);
-    const nonce = `0x${nonceBytes.toString('hex')}` as `0x${string}`;
+    const nonce = `0x${nonceBytes.toString("hex")}` as `0x${string}`;
 
-    const amountRaw = toRawUnits(amountUsdc, 'polygon');
-    const validAfter  = BigInt(0);
+    const amountRaw = toRawUnits(amountUsdc, "polygon");
+    const validAfter = BigInt(0);
     const validBefore = BigInt(Math.floor(Date.now() / 1000) + 300);
 
     // Le destinataire dans l'autorisation : FeeSplitter si fourni, sinon toAddress
     const authTo: Address = feeSplitterContract ?? toAddress;
 
     const authorization: Eip3009Authorization = {
-      from:        account.address,
-      to:          authTo,
-      value:       amountRaw.toString(),
-      validAfter:  validAfter.toString(),
+      from: account.address,
+      to: authTo,
+      value: amountRaw.toString(),
+      validAfter: validAfter.toString(),
       validBefore: validBefore.toString(),
       nonce,
     };
@@ -357,11 +364,11 @@ export class PaymentHandler {
     let signature: `0x${string}`;
     try {
       // Créer un walletClient Polygon pour signTypedData
-      const chain = getViemChain('polygon');
-      const transport = buildTransport('polygon');
+      const chain = getViemChain("polygon");
+      const transport = buildTransport("polygon");
       const walletClient = createWalletClient({
         account,
-        chain: chain as Parameters<typeof createWalletClient>[0]['chain'],
+        chain: chain as Parameters<typeof createWalletClient>[0]["chain"],
         transport,
       });
 
@@ -369,11 +376,11 @@ export class PaymentHandler {
         account,
         domain: POLYGON_EIP712_DOMAIN,
         types: TRANSFER_WITH_AUTHORIZATION_TYPES,
-        primaryType: 'TransferWithAuthorization',
+        primaryType: "TransferWithAuthorization",
         message: {
-          from:        account.address,
-          to:          authTo,
-          value:       amountRaw,
+          from: account.address,
+          to: authTo,
+          value: amountRaw,
           validAfter,
           validBefore,
           nonce,
@@ -382,7 +389,7 @@ export class PaymentHandler {
     } catch (err) {
       throw new PaymentError(
         `EIP-3009 signing failed: ${err instanceof Error ? err.message : String(err)}`,
-        { amount: amountUsdc, recipient: toAddress }
+        { amount: amountUsdc, recipient: toAddress },
       );
     }
 
@@ -391,20 +398,20 @@ export class PaymentHandler {
       x402Version: 1,
       paymentPayload: {
         x402Version: 1,
-        scheme: 'exact',
-        network: 'polygon',
+        scheme: "exact",
+        network: "polygon",
         payload: {
           signature,
           authorization,
         },
       },
       paymentRequirements: {
-        scheme: 'exact',
-        network: 'polygon',
+        scheme: "exact",
+        network: "polygon",
         maxAmountRequired: amountRaw.toString(),
-        resource: 'x402-sdk-payment',
-        description: 'x402 Bazaar API payment',
-        mimeType: 'application/json',
+        resource: "x402-sdk-payment",
+        description: "x402 Bazaar API payment",
+        mimeType: "application/json",
         payTo: toAddress,
         asset: CHAIN_CONFIGS.polygon.usdcContract,
         maxTimeoutSeconds: 60,
@@ -414,24 +421,27 @@ export class PaymentHandler {
     // Appeler le facilitateur
     let facilitatorResponse: FacilitatorResponse;
     try {
-      const response = await fetch(`${facilitatorUrl.replace(/\/$/, '')}/settle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settlePayload),
-      });
+      const response = await fetch(
+        `${facilitatorUrl.replace(/\/$/, "")}/settle`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(settlePayload),
+        },
+      );
 
       facilitatorResponse = (await response.json()) as FacilitatorResponse;
     } catch (err) {
       throw new PaymentError(
         `Facilitator request failed: ${err instanceof Error ? err.message : String(err)}`,
-        { amount: amountUsdc, recipient: toAddress }
+        { amount: amountUsdc, recipient: toAddress },
       );
     }
 
     if (!facilitatorResponse.success || !facilitatorResponse.transaction) {
       throw new PaymentError(
-        `Facilitator rejected payment: ${facilitatorResponse.errorReason ?? 'unknown error'}`,
-        { amount: amountUsdc, recipient: toAddress }
+        `Facilitator rejected payment: ${facilitatorResponse.errorReason ?? "unknown error"}`,
+        { amount: amountUsdc, recipient: toAddress },
       );
     }
 

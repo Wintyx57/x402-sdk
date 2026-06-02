@@ -47,6 +47,13 @@ export interface CallOptions {
   maxRetries?: number;
 }
 
+export interface SplitDetails {
+  provider_amount_usdc: number;
+  platform_amount_usdc: number;
+  provider_wallet: string;
+  platform_wallet: string;
+}
+
 export interface PaymentDetails {
   amount: number;
   currency: string;
@@ -56,6 +63,14 @@ export interface PaymentDetails {
   recipient: string;
   accepted: string[];
   action: string;
+  /** Present when the backend uses split mode (provider + platform separate payments) */
+  provider_wallet?: string;
+  /** Explicit payment mode signalled by the backend */
+  payment_mode?: "legacy" | "split_native" | "facilitator";
+  /** Amounts breakdown for split_native mode */
+  split?: SplitDetails;
+  /** Polygon facilitator URL — triggers EIP-3009 gas-free flow when present */
+  facilitator?: string;
 }
 
 export interface NetworkInfo {
@@ -65,6 +80,10 @@ export interface NetworkInfo {
   usdc_contract: string;
   explorer: string;
   gas: string;
+  /** Per-network recipient address (FeeSplitter for facilitator chains, platform wallet otherwise) */
+  recipient?: string;
+  /** Polygon facilitator URL exposed per network in the 402 body */
+  facilitator?: string;
 }
 
 export interface PaymentRequiredResponse {

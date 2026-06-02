@@ -1,9 +1,12 @@
 // Custom errors for @wintyx/x402-sdk
 
 export class BazaarError extends Error {
-  constructor(message: string, public readonly code: string) {
+  constructor(
+    message: string,
+    public readonly code: string,
+  ) {
     super(message);
-    this.name = 'BazaarError';
+    this.name = "BazaarError";
   }
 }
 
@@ -14,23 +17,23 @@ export class PaymentError extends BazaarError {
       amount?: number;
       recipient?: string;
       txHash?: string;
-    }
+    },
   ) {
-    super(message, 'PAYMENT_ERROR');
-    this.name = 'PaymentError';
+    super(message, "PAYMENT_ERROR");
+    this.name = "PaymentError";
   }
 }
 
 export class InsufficientBalanceError extends PaymentError {
   constructor(
     public readonly available: number,
-    public readonly required: number
+    public readonly required: number,
   ) {
     super(
       `Insufficient USDC balance: ${available.toFixed(6)} USDC available (need: ${required} USDC)`,
-      { amount: required }
+      { amount: required },
     );
-    this.name = 'InsufficientBalanceError';
+    this.name = "InsufficientBalanceError";
   }
 }
 
@@ -38,13 +41,13 @@ export class BudgetExceededError extends BazaarError {
   constructor(
     public readonly spent: number,
     public readonly limit: number,
-    public readonly period: string
+    public readonly period: string,
   ) {
     super(
       `${period} budget exceeded: ${spent.toFixed(4)} USDC spent out of ${limit} USDC maximum`,
-      'BUDGET_EXCEEDED'
+      "BUDGET_EXCEEDED",
     );
-    this.name = 'BudgetExceededError';
+    this.name = "BudgetExceededError";
   }
 }
 
@@ -52,30 +55,46 @@ export class ApiError extends BazaarError {
   constructor(
     message: string,
     public readonly statusCode: number,
-    public readonly endpoint: string
+    public readonly endpoint: string,
   ) {
     super(message, `API_ERROR_${statusCode}`);
-    this.name = 'ApiError';
+    this.name = "ApiError";
   }
 }
 
 export class NetworkError extends BazaarError {
-  constructor(message: string, public readonly cause?: Error) {
-    super(message, 'NETWORK_ERROR');
-    this.name = 'NetworkError';
+  constructor(
+    message: string,
+    public readonly cause?: Error,
+  ) {
+    super(message, "NETWORK_ERROR");
+    this.name = "NetworkError";
   }
 }
 
 export class TimeoutError extends BazaarError {
   constructor(endpoint: string, timeoutMs: number) {
-    super(`Timeout after ${timeoutMs}ms for ${endpoint}`, 'TIMEOUT');
-    this.name = 'TimeoutError';
+    super(`Timeout after ${timeoutMs}ms for ${endpoint}`, "TIMEOUT");
+    this.name = "TimeoutError";
   }
 }
 
 export class InvalidConfigError extends BazaarError {
   constructor(message: string) {
-    super(message, 'INVALID_CONFIG');
-    this.name = 'InvalidConfigError';
+    super(message, "INVALID_CONFIG");
+    this.name = "InvalidConfigError";
+  }
+}
+
+export class PaymentNotChargedError extends BazaarError {
+  constructor(
+    public readonly status: "not_charged" | "refunded",
+    public readonly details?: unknown,
+  ) {
+    super(
+      `Payment was ${status === "not_charged" ? "not charged" : "refunded"} by the backend — call did not succeed`,
+      "PAYMENT_NOT_CHARGED",
+    );
+    this.name = "PaymentNotChargedError";
   }
 }

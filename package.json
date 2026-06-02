@@ -28,7 +28,7 @@
     "build:esm": "tsc -p tsconfig.json",
     "build:cjs": "tsc -p tsconfig.cjs.json && echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
     "build:watch": "tsc -p tsconfig.json --watch",
-    "test": "tsc -p tsconfig.test.json && node --test dist-test/tests/client.test.js dist-test/tests/errors.test.js dist-test/tests/wallet.test.js dist-test/tests/payment.test.js dist-test/tests/types.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/tests/client.test.js dist-test/tests/errors.test.js dist-test/tests/wallet.test.js dist-test/tests/payment.test.js dist-test/tests/types.test.js dist-test/tests/decimals.test.js dist-test/tests/split-mode.test.js dist-test/tests/not-charged-handling.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build && npm run typecheck"
   },

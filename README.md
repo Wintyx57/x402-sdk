@@ -21,12 +21,12 @@ npm install @wintyx/x402-sdk
 import { createClient } from '@wintyx/x402-sdk';
 
 // Zero-config: auto-generates an encrypted wallet on first use
-const client = createClient({ chain: 'base' });
+const client = createClient({ chain: 'skale' });
 
 // Or provide your own private key
 // const client = createClient({
 //   privateKey: process.env.AGENT_PRIVATE_KEY as `0x${string}`,
-//   chain: 'base',
+//   chain: 'skale',
 // });
 
 // List available APIs
@@ -55,7 +55,7 @@ The wallet file is distinct from the MCP wallet (`wallet.json`) to avoid collisi
 import { createClient, loadOrCreateWallet } from '@wintyx/x402-sdk';
 
 // Auto-wallet (recommended for agents)
-const client = createClient({ chain: 'base' });
+const client = createClient({ chain: 'skale' });
 console.log(`Wallet: ${client.walletAddress}`);
 
 // Or manage the wallet directly
@@ -71,7 +71,7 @@ The recommended way to create a client.
 
 ```ts
 const client = createClient({
-  chain: 'base',
+  chain: 'skale',
   budget: { max: 5.0, period: 'daily' },
   timeout: 30000,
 });
@@ -80,8 +80,8 @@ const client = createClient({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `privateKey` | `` `0x${string}` `` | auto-generated | Agent wallet private key (optional — auto-generates encrypted wallet if omitted) |
-| `chain` | `'base' \| 'base-sepolia' \| 'skale' \| 'polygon'` | `'base'` | Blockchain network |
-| `network` | same as `chain` | `'base'` | Alias for `chain` |
+| `chain` | `'base' \| 'base-sepolia' \| 'skale' \| 'polygon'` | `'skale'` | Blockchain network |
+| `network` | same as `chain` | `'skale'` | Alias for `chain` |
 | `baseUrl` | `string` | `https://x402-api.onrender.com` | Bazaar API URL |
 | `budget` | `{ max: number, period: 'daily'\|'weekly'\|'monthly' }` | unlimited | Spending cap (local tracking) |
 | `timeout` | `number` | `30000` | HTTP timeout in ms |
@@ -159,7 +159,7 @@ Checks the Bazaar backend status.
 
 ```ts
 const health = await client.health();
-// { status: 'ok', version: '1.0.0', network: 'Base', uptime_seconds: 3600 }
+// { status: 'ok', version: '1.1.0', network: 'SKALE', uptime_seconds: 3600 }
 ```
 
 ### `client.fundWallet()`
@@ -276,7 +276,7 @@ const { createClient } = require('@wintyx/x402-sdk');
 import { createClient } from '@wintyx/x402-sdk';
 ```
 
-## Available APIs (112+ endpoints)
+## Available APIs (155 services, 101 native endpoints)
 
 | Endpoint | Price | Description |
 |----------|-------|-------------|
@@ -299,7 +299,7 @@ Full list: [x402bazaar.org/services](https://x402bazaar.org/services) or `client
 
 | Repository | Description |
 |---|---|
-| **[x402-backend](https://github.com/Wintyx57/x402-backend)** | API server, 112 native endpoints, payment middleware, MCP server |
+| **[x402-backend](https://github.com/Wintyx57/x402-backend)** | API server, 101 native endpoints, payment middleware, MCP server |
 | **[x402-frontend](https://github.com/Wintyx57/x402-frontend)** | React + TypeScript marketplace UI |
 | **[x402-bazaar-cli](https://github.com/Wintyx57/x402-bazaar-cli)** | `npx x402-bazaar` — CLI with 7 commands |
 | **[x402-sdk](https://github.com/Wintyx57/x402-sdk)** | TypeScript SDK for AI agents (this repo) |

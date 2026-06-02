@@ -18,6 +18,7 @@ import {
   NetworkError,
   TimeoutError,
   InvalidConfigError,
+  PaymentNotChargedError,
 } from "./errors.js";
 
 import { createHmac, timingSafeEqual } from "crypto";
@@ -517,37 +518,142 @@ export class BazaarClient {
     // Vérification budget AVANT de payer
     this._checkBudget(amountUsdc);
 
-    // Trouver le bon réseau parmi ceux acceptés par le serveur
+    // ── Detect payment mode ───────────────────────────────────────────────────
+    // Explicit field takes precedence; otherwise infer from shape of the response.
+    const explicitMode = details.payment_mode;
+    const isSplit =
+      explicitMode === "split_native" ||
+      (!explicitMode && details.split !== undefined);
+    const isFacilitator =
+      explicitMode === "facilitator" ||
+      (!explicitMode && !isSplit && !!details.facilitator);
+    // Everything else → legacy single-transfer
+
+    // ── Trouver le réseau cible accepté par le serveur ───────────────────────
     const targetNetwork =
       details.networks?.find((n) => n.network === this.config.network) ??
       details.networks?.[0];
 
-    const recipient = (details.recipient ?? targetNetwork?.usdc_contract) as
-      | `0x${string}`
-      | undefined;
-
-    if (!recipient) {
-      throw new ApiError(
-        "No recipient found in payment_details",
-        402,
-        endpoint,
-      );
-    }
-
-    // Envoyer le paiement USDC on-chain
-    const payment = await this.paymentHandler.sendUsdc(recipient, amountUsdc);
-
-    // Enregistrer la dépense localement
-    this._recordSpending(amountUsdc);
-
-    // Retenter avec le tx hash — backoff exponentiel : 1s, 2s, 4s
-    const paidHeaders: Record<string, string> = {
+    // ── Common payment headers (chain + wallet always required) ──────────────
+    const paymentBaseHeaders = {
       ...baseHeaders,
-      "X-Payment-TxHash": payment.txHash,
       "X-Payment-Chain": this.config.network,
+      "X-Agent-Wallet": this.paymentHandler.walletAddress,
     };
 
-    // Méthode et body identiques à la requête initiale (POST pour call(), GET pour callDirect())
+    // ── Execute payment & build mode-specific headers ─────────────────────
+    let paidHeaders: Record<string, string>;
+    // Track what was actually recorded so _reverseSpending is always accurate.
+    let recordedUsdc = 0;
+
+    if (isSplit && details.split) {
+      // ── Split mode: two on-chain transfers (provider 95% + platform 5%) ────
+      const { split } = details;
+      const providerWallet = (split.provider_wallet ??
+        details.provider_wallet) as `0x${string}`;
+      const platformWallet = split.platform_wallet as `0x${string}`;
+
+      if (!providerWallet) {
+        throw new ApiError(
+          "split mode: missing provider_wallet in payment_details",
+          402,
+          endpoint,
+        );
+      }
+
+      const providerPayment = await this.paymentHandler.sendUsdc(
+        providerWallet,
+        split.provider_amount_usdc,
+      );
+      this._recordSpending(split.provider_amount_usdc);
+      recordedUsdc += split.provider_amount_usdc;
+
+      let platformTxHash: string | undefined;
+      if (platformWallet && split.platform_amount_usdc > 0) {
+        try {
+          const platformPayment = await this.paymentHandler.sendUsdc(
+            platformWallet,
+            split.platform_amount_usdc,
+          );
+          platformTxHash = platformPayment.txHash;
+          this._recordSpending(split.platform_amount_usdc);
+          recordedUsdc += split.platform_amount_usdc;
+        } catch {
+          // platform fee is best-effort — do not block provider delivery
+        }
+      }
+
+      paidHeaders = {
+        ...paymentBaseHeaders,
+        "X-Payment-TxHash-Provider": providerPayment.txHash,
+      };
+      if (platformTxHash) {
+        paidHeaders["X-Payment-TxHash-Platform"] = platformTxHash;
+      }
+    } else if (isFacilitator) {
+      // ── Facilitator mode (Polygon EIP-3009 gas-free) ─────────────────────
+      const facilitatorUrl =
+        details.facilitator ??
+        targetNetwork?.facilitator ??
+        (targetNetwork?.recipient as string | undefined); // fallback
+
+      if (!facilitatorUrl) {
+        throw new ApiError(
+          "facilitator mode: missing facilitator URL in payment_details",
+          402,
+          endpoint,
+        );
+      }
+
+      const recipientAddr = (details.recipient ??
+        targetNetwork?.recipient ??
+        targetNetwork?.usdc_contract) as `0x${string}` | undefined;
+
+      if (!recipientAddr) {
+        throw new ApiError(
+          "facilitator mode: missing recipient in payment_details",
+          402,
+          endpoint,
+        );
+      }
+
+      const payment = await this.paymentHandler.sendViaFacilitator(
+        recipientAddr,
+        amountUsdc,
+        facilitatorUrl,
+      );
+      this._recordSpending(amountUsdc);
+      recordedUsdc = amountUsdc;
+
+      paidHeaders = {
+        ...paymentBaseHeaders,
+        "X-Payment-TxHash": payment.txHash,
+      };
+    } else {
+      // ── Legacy mode: single transfer to platform wallet ───────────────────
+      const recipient = (details.recipient ??
+        targetNetwork?.recipient ??
+        targetNetwork?.usdc_contract) as `0x${string}` | undefined;
+
+      if (!recipient) {
+        throw new ApiError(
+          "No recipient found in payment_details",
+          402,
+          endpoint,
+        );
+      }
+
+      const payment = await this.paymentHandler.sendUsdc(recipient, amountUsdc);
+      this._recordSpending(amountUsdc);
+      recordedUsdc = amountUsdc;
+
+      paidHeaders = {
+        ...paymentBaseHeaders,
+        "X-Payment-TxHash": payment.txHash,
+      };
+    }
+
+    // ── Retry with payment proof — exponential backoff: 1 s, 2 s, 4 s ──────
     const fetchInit: RequestInit =
       requestBody !== undefined
         ? { method: "POST", headers: paidHeaders, body: requestBody }
@@ -557,7 +663,6 @@ export class BazaarClient {
     let response: Response;
 
     while (retries <= maxRetries) {
-      // Backoff exponentiel avant chaque retry (pas avant le premier essai)
       if (retries > 0) {
         await new Promise((resolve) =>
           setTimeout(resolve, Math.min(1000 * Math.pow(2, retries - 1), 4000)),
@@ -576,14 +681,18 @@ export class BazaarClient {
 
       if (response.ok) {
         const result = (await response.json()) as T;
-
-        // Handle auto-refund: USDC returned on-chain
         const r = result as Record<string, unknown>;
+
+        if (r["_payment_status"] === "not_charged") {
+          this._reverseSpending(recordedUsdc);
+          throw new PaymentNotChargedError("not_charged", r);
+        }
+
         if (r["_payment_status"] === "refunded") {
-          this._reverseSpending(amountUsdc);
-          // Extract serviceId from endpoint path
+          this._reverseSpending(recordedUsdc);
           const match = endpoint.match(/\/api\/call\/([^/?]+)/);
-          if (match) this._addToBlacklist(match[1], "refunded_bad_response");
+          if (match) this._addToBlacklist(match[1]!, "refunded_bad_response");
+          throw new PaymentNotChargedError("refunded", r);
         }
 
         return result;
